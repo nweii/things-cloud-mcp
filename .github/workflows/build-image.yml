@@ -1,0 +1,39 @@
+# Builds the hardened container image and pushes it to GHCR so deployments pull
+# a prebuilt image instead of compiling on the host. Runs on pushes to the
+# pinned deploy branch and on manual dispatch.
+name: build-image
+
+on:
+  push:
+    branches: [deploy/v1.3.2-hardened]
+    paths-ignore: ["**.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/nweii/things-cloud-mcp
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          # NAS runtime is linux/amd64; build only that to keep CI fast.
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:v1.3.2-hardened
+            ${{ env.IMAGE }}:${{ github.sha }}

@@ -10,10 +10,9 @@
 # the machine-to-machine flow.
 services:
   things-cloud-mcp:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: things-cloud-mcp:v1.3.2-hardened
+    # Prebuilt by CI and pulled here; the host never compiles. Rebuilt only on
+    # deliberate pushes to the deploy branch (see .github/workflows/build-image.yml).
+    image: ghcr.io/nweii/things-cloud-mcp:v1.3.2-hardened
     container_name: things-cloud-mcp
     hostname: things-mcp
     restart: unless-stopped
