@@ -1,0 +1,39 @@
+# Hardened deployment of the Things Cloud MCP server: builds the local
+# Dockerfile, runs non-root and read-only with all capabilities dropped, and
+# persists OAuth/JWT state to a bind-mounted data directory.
+#
+# Host-specific values (data path, published port + bind address, run-as UID,
+# timezone) come from the environment, so this file stays portable. The
+# server's own OAuth 2.1 / JWT layer is the auth perimeter: front it with TLS
+# and gate the interactive /authorize screen at your edge if exposing it
+# publicly, leaving /.well-known/*, /token, /register, and /mcp reachable for
+# the machine-to-machine flow.
+services:
+  things-cloud-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: things-cloud-mcp:v1.3.2-hardened
+    container_name: things-cloud-mcp
+    hostname: things-mcp
+    restart: unless-stopped
+    network_mode: bridge
+    user: "${RUN_AS:-65532:65532}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    environment:
+      - PORT=8080
+      - DATA_DIR=/data
+      - TZ=${TZ:-UTC}
+      - JWT_SECRET=${JWT_SECRET}
+      # Do NOT set THINGS_DEBUG: it logs the plaintext Things password.
+    volumes:
+      - ${DATA_PATH:-./data}:/data
+    ports:
+      # Bind to localhost by default; override BIND to expose elsewhere.
+      - "${BIND:-127.0.0.1:8080}:8080"
