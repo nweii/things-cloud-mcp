@@ -1570,14 +1570,16 @@ func handleHowItWorksPage(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(HowItWorksPageHTML))
 }
 
-// faviconSVG is a standalone SVG used as the favicon (cloud with checkmark).
-const faviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none">
-  <path d="M50 46a11 11 0 0 0 0-22 11 11 0 0 0-1-.04 15 15 0 0 0-29-2A13 13 0 0 0 14 46h36z" fill="#1A7CF9"/>
-  <polyline points="24,34 30,40 42,28" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+// faviconSVG is a standalone SVG used as the favicon: a flat Things-blue
+// rounded square with a white checkmark.
+const faviconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect x="6" y="6" width="52" height="52" rx="14" fill="#2573E7"/>
+  <polyline points="20,33 28,42 45,23" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`
 
-// faviconPNG is a base64-encoded 32x32 PNG of a blue cloud with white checkmark.
-const faviconPNG = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABHUlEQVR4nGJiGGAw6oABdwALOZqkan7+xyb+rIWdkVSzSNKAy2JKHEJ0FBBrOalqiXIAKQaSqmfAEyFBB5Dje1L04nUAuZZXuzEzPG1mA+Oph/7gNQNnaqXE8ixbZhQx6dpfOHMG1hCgpuWEzMRwALUtn3b4L16zmWhteeuuvwz47CCYC5ATFIhNieXYAEEHIBsOYiM7glLLGcipjNAdRInlDMSEAHIiQraYGpYT5QCQgdgcQQ3LMRyAq7Ag5AhSLEe3g+jKCJcjyPU5yQ6AOeL8439wPohNieUM5OQCn1l/KLIQHWCEADntOmIBNrMHZ4OEFqGAy0yCFlHSIsJnMdEOINchxIYi0WmAlGghRS1ZcU3NntGAA0AAAAD//8S3oe5VGX2KAAAAAElFTkSuQmCC"
+// faviconPNG is a base64-encoded 32x32 PNG of the same flat blue rounded
+// square with a white checkmark.
+const faviconPNG = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAA+klEQVRYCe2TvUoDQRSFv9nZZElQiRghhb9Y2Ah22qT1EazzQGl9jKS0sBPsTGeldRAE0RCCu2bJzDiz2lrOprmnGqY553yXo5wXXrMvi61esNVSNLQK39GVBvvh7YLRY4FOoDSOvW3NzaDD/k4aPUAyzy2jScHrzDD9NOxuat7mlvvnMrp5MEh8YQLty5Mm5wcNri9a5EvH72HiZ6gYlytHr6O5Osuqc7wvbHznP4d0I1McdlPGk5y7p2+K0tFuwlFX1xJChRVMPwwPL0uMLx6GcOzN+6cZqoYhVAFqqfqPiR/eeiUBhIAQEAJCQAgIASEgBISAEFg7gR8ypU8ExxjdqgAAAABJRU5ErkJggg=="
 
 func handleFavicon(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "public, max-age=86400")
