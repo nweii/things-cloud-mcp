@@ -4564,8 +4564,15 @@ func main() {
 
 	hooks := &server.Hooks{}
 	hooks.AddAfterInitialize(func(ctx context.Context, id any, message *mcp.InitializeRequest, result *mcp.InitializeResult) {
-		result.ServerInfo.Icons = []mcp.Icon{
-			{Src: "https://thingscloudmcp.com/favicon.svg", MIMEType: "image/svg+xml"},
+		// Advertise the icon from this server's own origin (derived from the
+		// request), so it is same-origin with the MCP endpoint and works for
+		// any deployment. Clients reject cross-origin icon sources, so a
+		// hardcoded host would never render. Falls back to no icon if the base
+		// URL can't be resolved.
+		if base := getBaseURLFromContext(ctx); base != "" {
+			result.ServerInfo.Icons = []mcp.Icon{
+				{Src: base + "/favicon.svg", MIMEType: "image/svg+xml"},
+			}
 		}
 	})
 
