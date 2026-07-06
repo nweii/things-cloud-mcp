@@ -85,3 +85,47 @@ The production service runs as the `wenbo` user service `things-mcp` on `wenbo@e
 OAuth 2.1 uses PKCE. Persistent state is in `DATA_DIR/oauth.db`; endpoints include `/authorize`, `/token`, `/register`, and `/.well-known/oauth-*`.
 
 Feature worktrees belong under `.Codex/worktrees/`.
+
+---
+
+# Fork orientation
+
+This repository is a deployment-hardened fork of [wbopan/things-cloud-mcp](https://github.com/wbopan/things-cloud-mcp). Everything above is upstream's guidance and is kept verbatim so pulls stay low-friction; this section covers what the fork changes. Where the two disagree about deployment, this section wins — the deploy branch runs as a container, not as the upstream maintainer's user service.
+
+## What the fork adds
+
+The delta is deployment machinery, not features. Upstream documents Fly.io hosting; the fork adds what self-hosting on a container host needs:
+
+- a hardened `Dockerfile` (digest-pinned base images, static CGO-free binary, non-root user),
+- a portable `compose.yaml` (read-only rootfs, all capabilities dropped, loopback bind by default, host specifics injected via environment),
+- a GitHub Actions workflow (`.github/workflows/build-image.yml`) that builds the image on pushes to the deploy branch and pushes it to `ghcr.io/nweii/things-cloud-mcp`, so deployments pull a prebuilt image instead of compiling on the host,
+- a favicon served from the server's own origin rather than a fixed hostname, since clients reject cross-origin icon sources,
+- any bug fixes not yet merged upstream.
+
+Bug fixes discovered here get contributed back upstream rather than accumulating as fork-only behavior.
+
+## Branch layout
+
+- `main` mirrors upstream `main` and carries no fork-only commits. Keep it that way; fast-forward it from upstream, never commit to it.
+- `deploy/vX.Y.Z-hardened` is the deployed branch, pinned to the upstream version in its name, carrying the whole fork delta.
+- Short-lived `fix/*` branches off `upstream/main` exist only to carry cherry-picked commits for upstream PRs.
+
+When upstream cuts a release worth adopting, create a fresh `deploy/vX.Y.Z-hardened` branch from the new tag, re-apply the fork commits, drop any that upstream has since merged, and retire the old branch once the deployment has moved over.
+
+## Upstreaming flow
+
+1. Land and verify the fix on the deploy branch (it runs in a real deployment there).
+2. Cherry-pick just the fix commit onto a clean `fix/*` branch off `upstream/main`.
+3. Open the PR against `wbopan/things-cloud-mcp` `main`.
+4. Once merged, the commit falls out of the fork's delta at the next deploy-branch cut.
+
+Prior examples: the create-path sort-index clamp (upstream #16, merged) and the update-path sort-index heal (upstream #18, still fork-only).
+
+## Working conventions
+
+- Keep the README and this file upstream-shaped apart from the fork sections, so pulls from upstream stay low-friction.
+- Never set `THINGS_DEBUG` in a deployment: it logs the plaintext Things password.
+- Do not rename environment variables; existing deployments depend on the current names.
+- Set `CREDENTIALS_SECRET` from the deployment's own secret store rather than letting the server generate `DATA_DIR/credentials.key`, so a data-volume backup alone cannot decrypt stored passwords.
+- Image rebuilds happen only on deliberate pushes to the pinned deploy branch (or manual workflow dispatch), never implicitly.
+- Keep this repo free of any deployer's host specifics (paths, addresses, UIDs, service names); `compose.yaml` takes them from the environment for that reason.
