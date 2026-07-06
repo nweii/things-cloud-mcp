@@ -1,5 +1,7 @@
 # Things Cloud MCP
 
+> This is a deployment-hardened fork of [wbopan/things-cloud-mcp](https://github.com/wbopan/things-cloud-mcp). The `main` branch mirrors upstream; the fork's delta (hardened container build, CI-built image, portable compose) lives on the `deploy/*` branch. See [AGENTS.md](AGENTS.md) for the layout. Bug fixes made here are contributed back upstream.
+
 An MCP server that connects AI assistants to Things 3 via Things Cloud.
 
 **Public endpoint: https://thingscloudmcp.com**
