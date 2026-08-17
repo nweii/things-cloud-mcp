@@ -59,9 +59,14 @@ var (
 	ItemKindChecklistItem2 ItemKind = "ChecklistItem2"
 	ItemKindChecklistItem3 ItemKind = "ChecklistItem3"
 	// ItemKindTask identifies a Task or Subtask
-	ItemKindTask      ItemKind = "Task6"
-	ItemKindTask4     ItemKind = "Task4"
-	ItemKindTask3     ItemKind = "Task3"
+	ItemKindTask ItemKind = "Task6"
+	// ItemKindTask7 is the task record written by newer Things clients. Its
+	// payload decodes into TaskActionItemPayload like the earlier versions:
+	// observed records carry the same abbreviated field names, and a record
+	// that omits a field is a partial update rather than a different shape.
+	ItemKindTask7 ItemKind = "Task7"
+	ItemKindTask4 ItemKind = "Task4"
+	ItemKindTask3 ItemKind = "Task3"
 	ItemKindTaskPlain ItemKind = "Task"
 	// ItemKindArea identifies an Area
 	ItemKindArea      ItemKind = "Area2"

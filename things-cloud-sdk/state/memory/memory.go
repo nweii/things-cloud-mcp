@@ -267,7 +267,7 @@ func (s *State) updateTag(item things.TagActionItem) *things.Tag {
 // values, which carry task titles and notes) so support can be added deliberately.
 func isUnknownKind(kind things.ItemKind) bool {
 	switch kind {
-	case things.ItemKindTask, things.ItemKindTask4, things.ItemKindTask3, things.ItemKindTaskPlain,
+	case things.ItemKindTask, things.ItemKindTask7, things.ItemKindTask4, things.ItemKindTask3, things.ItemKindTaskPlain,
 		things.ItemKindChecklistItem, things.ItemKindChecklistItem2, things.ItemKindChecklistItem3,
 		things.ItemKindArea, things.ItemKindArea3, things.ItemKindAreaPlain,
 		things.ItemKindTag, things.ItemKindTag4, things.ItemKindTagPlain,
@@ -315,7 +315,7 @@ func (s *State) Update(items ...things.Item) error {
 		}
 		var target any
 		switch rawItem.Kind {
-		case things.ItemKindTask, things.ItemKindTask4, things.ItemKindTask3, things.ItemKindTaskPlain:
+		case things.ItemKindTask, things.ItemKindTask7, things.ItemKindTask4, things.ItemKindTask3, things.ItemKindTaskPlain:
 			target = &things.TaskActionItemPayload{}
 		case things.ItemKindChecklistItem, things.ItemKindChecklistItem2, things.ItemKindChecklistItem3:
 			target = &things.CheckListActionItemPayload{}
@@ -339,7 +339,7 @@ func (s *State) Update(items ...things.Item) error {
 			continue
 		}
 		switch rawItem.Kind {
-		case things.ItemKindTask, things.ItemKindTask4, things.ItemKindTask3, things.ItemKindTaskPlain:
+		case things.ItemKindTask, things.ItemKindTask7, things.ItemKindTask4, things.ItemKindTask3, things.ItemKindTaskPlain:
 			item := things.TaskActionItem{Item: rawItem}
 			_ = json.Unmarshal(rawItem.P, &item.P)
 
