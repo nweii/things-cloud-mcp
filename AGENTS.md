@@ -119,7 +119,7 @@ When upstream cuts a release worth adopting, create a fresh `deploy/vX.Y.Z-harde
 3. Open the PR against `wbopan/things-cloud-mcp` `main`.
 4. Once merged, the commit falls out of the fork's delta at the next deploy-branch cut.
 
-Prior examples: the create-path sort-index clamp (upstream #16, merged) and the update-path sort-index heal (upstream #18, still fork-only).
+Prior example: the update-path sort-index heal (upstream #18, still open). The create-path clamp that ships with the fork came the other direction — it is another contributor's commit (upstream #17), carried here before it merged.
 
 ## Working conventions
 
