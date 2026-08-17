@@ -12,7 +12,7 @@ services:
   things-cloud-mcp:
     # Prebuilt by CI and pulled here; the host never compiles. Rebuilt only on
     # deliberate pushes to the deploy branch (see .github/workflows/build-image.yml).
-    image: ghcr.io/nweii/things-cloud-mcp:v1.3.2-hardened
+    image: ghcr.io/nweii/things-cloud-mcp:v1.4.2-hardened
     container_name: things-cloud-mcp
     hostname: things-mcp
     restart: unless-stopped
@@ -30,6 +30,13 @@ services:
       - DATA_DIR=/data
       - TZ=${TZ:-UTC}
       - JWT_SECRET=${JWT_SECRET}
+      # Derives the AES-GCM key for Things passwords at rest. Supplying it from
+      # the deployment's own secret store keeps the key out of the data volume,
+      # so a volume backup alone cannot decrypt stored credentials. Without it
+      # the server generates DATA_DIR/credentials.key instead. Losing the key
+      # makes stored credentials permanently unreadable — back it up with the
+      # database.
+      - CREDENTIALS_SECRET=${CREDENTIALS_SECRET}
       # Do NOT set THINGS_DEBUG: it logs the plaintext Things password.
     volumes:
       - ${DATA_PATH:-./data}:/data
