@@ -493,16 +493,30 @@ func TestStateUpdateRejectsMalformedKnownItem(t *testing.T) {
 	}
 }
 
-func TestStateUpdateRejectsUnknownKind(t *testing.T) {
+func TestStateUpdateSkipsUnknownKind(t *testing.T) {
 	s := NewState()
-	err := s.Update(things.Item{
-		UUID:   "future-item",
-		Kind:   things.ItemKind("Task7"),
-		Action: things.ItemActionCreated,
-		P:      []byte(`{}`),
-	})
-	if err == nil {
-		t.Fatal("expected unknown kind error")
+	err := s.Update(
+		things.Item{
+			UUID:   "future-item",
+			Kind:   things.ItemKind("Task7"),
+			Action: things.ItemActionCreated,
+			P:      []byte(`{"tt":"from a newer Things"}`),
+		},
+		things.Item{
+			UUID:   "known-item",
+			Kind:   things.ItemKindTask,
+			Action: things.ItemActionCreated,
+			P:      []byte(`{"tt":"ordinary task"}`),
+		},
+	)
+	if err != nil {
+		t.Fatalf("unknown kind should be skipped, not rejected: %v", err)
+	}
+	if _, ok := s.Tasks["future-item"]; ok {
+		t.Fatal("unknown kind was applied to state")
+	}
+	if _, ok := s.Tasks["known-item"]; !ok {
+		t.Fatal("known item in the same batch was dropped")
 	}
 }
 

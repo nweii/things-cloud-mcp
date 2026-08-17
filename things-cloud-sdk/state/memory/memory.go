@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	// "fmt"
+	"log"
 	"sort"
+	"strings"
 
 	things "github.com/arthursoares/things-cloud-sdk"
 )
@@ -246,13 +248,66 @@ func (s *State) updateTag(item things.TagActionItem) *things.Tag {
 	return t
 }
 
+// isUnknownKind reports whether kind is a business-entity kind this package has
+// no decoder for. Things Cloud versions its record kinds (Task, Task3, Task4,
+// Task6, …) and introduces a new version before every client understands it, so
+// an account can legitimately contain records from a newer format than this code
+// knows — most visibly on a Things beta, where a single item can carry the next
+// version while the rest of the account is unchanged.
+//
+// Such an item is skipped rather than rejected. Skipping is lossy: changes
+// carried only by that record never reach the task graph, so the local view of
+// that one item goes stale. Rejecting is worse — one unreadable record fails the
+// whole batch and every read with it, taking down an otherwise healthy account
+// for a single item. The tradeoff is deliberate and narrow, and it applies only
+// to unrecognised kinds; unknown actions and malformed payloads still fail
+// closed, because those indicate a corrupt event rather than a newer one.
+//
+// Each unknown kind is logged once per batch with its payload field names (not
+// values, which carry task titles and notes) so support can be added deliberately.
+func isUnknownKind(kind things.ItemKind) bool {
+	switch kind {
+	case things.ItemKindTask, things.ItemKindTask4, things.ItemKindTask3, things.ItemKindTaskPlain,
+		things.ItemKindChecklistItem, things.ItemKindChecklistItem2, things.ItemKindChecklistItem3,
+		things.ItemKindArea, things.ItemKindArea3, things.ItemKindAreaPlain,
+		things.ItemKindTag, things.ItemKindTag4, things.ItemKindTagPlain,
+		things.ItemKindTombstone:
+		return false
+	}
+	return true
+}
+
+// payloadFieldNames returns the sorted top-level keys of a wire payload, so an
+// unknown record's shape can be logged without logging its contents.
+func payloadFieldNames(payload json.RawMessage) string {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		return "<undecodable>"
+	}
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ",")
+}
+
 // Update applies all items to update the aggregated state
 func (s *State) Update(items ...things.Item) error {
 	// Validate the whole batch first. Advancing a sync cursor after silently
 	// skipping a future or malformed event would make the local state permanently
 	// incomplete, so updates are all-or-nothing with respect to decoding.
+	reportedKinds := map[things.ItemKind]bool{}
 	for _, rawItem := range items {
 		if things.IsSettingsKind(rawItem.Kind) {
+			continue
+		}
+		if isUnknownKind(rawItem.Kind) {
+			if !reportedKinds[rawItem.Kind] {
+				reportedKinds[rawItem.Kind] = true
+				log.Printf("things-cloud-sdk: skipping unknown item kind %q (first seen on %s); payload fields: %s",
+					rawItem.Kind, rawItem.UUID, payloadFieldNames(rawItem.P))
+			}
 			continue
 		}
 		if rawItem.Action != things.ItemActionCreated && rawItem.Action != things.ItemActionModified && rawItem.Action != things.ItemActionDeleted {
@@ -271,7 +326,8 @@ func (s *State) Update(items ...things.Item) error {
 		case things.ItemKindTombstone:
 			target = &things.TombstoneActionItemPayload{}
 		default:
-			return fmt.Errorf("item %s has unsupported kind %q", rawItem.UUID, rawItem.Kind)
+			// Unreachable: isUnknownKind already skipped these above.
+			continue
 		}
 		if err := json.Unmarshal(rawItem.P, target); err != nil {
 			return fmt.Errorf("decode item %s (%s): %w", rawItem.UUID, rawItem.Kind, err)
