@@ -500,7 +500,7 @@ func TestStateUpdateSkipsUnknownKind(t *testing.T) {
 	err := s.Update(
 		things.Item{
 			UUID:   "future-item",
-			Kind:   things.ItemKind("Task7"),
+			Kind:   things.ItemKind("Task9"),
 			Action: things.ItemActionCreated,
 			P:      []byte(`{"tt":"from a newer Things"}`),
 		},
@@ -519,6 +519,26 @@ func TestStateUpdateSkipsUnknownKind(t *testing.T) {
 	}
 	if _, ok := s.Tasks["known-item"]; !ok {
 		t.Fatal("known item in the same batch was dropped")
+	}
+}
+
+func TestStateUpdateAppliesTask7(t *testing.T) {
+	s := NewState()
+	err := s.Update(things.Item{
+		UUID:   "recurring-item",
+		Kind:   things.ItemKindTask7,
+		Action: things.ItemActionCreated,
+		P:      []byte(`{"tt":"Pay rent","icsd":1739923200}`),
+	})
+	if err != nil {
+		t.Fatalf("Task7 should decode like other task versions: %v", err)
+	}
+	task, ok := s.Tasks["recurring-item"]
+	if !ok {
+		t.Fatal("Task7 item did not reach the task graph")
+	}
+	if task.Title != "Pay rent" {
+		t.Fatalf("Task7 payload decoded wrong: title = %q", task.Title)
 	}
 }
 
