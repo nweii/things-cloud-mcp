@@ -12,7 +12,7 @@ services:
   things-cloud-mcp:
     # Prebuilt by CI and pulled here; the host never compiles. Rebuilt only on
     # deliberate pushes to the deploy branch (see .github/workflows/build-image.yml).
-    image: ghcr.io/nweii/things-cloud-mcp:v1.4.2-hardened
+    image: ghcr.io/nweii/things-cloud-mcp:v1.4.4-hardened
     container_name: things-cloud-mcp
     hostname: things-mcp
     restart: unless-stopped
