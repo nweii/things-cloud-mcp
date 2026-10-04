@@ -1,3 +1,4 @@
+// Safety tests cover serialized operations, atomic synchronization, and guarded writes.
 package main
 
 import (
@@ -189,6 +190,7 @@ func TestFullRebuildAcceptsLegacyTombstone(t *testing.T) {
 }
 
 func TestUncertainCommitIsReconciledWithoutRetryingWrite(t *testing.T) {
+	taskID := thingscloud.NewUUID()
 	var mu sync.Mutex
 	var committed map[string]json.RawMessage
 	var postCount int
@@ -232,14 +234,14 @@ func TestUncertainCommitIsReconciledWithoutRetryingWrite(t *testing.T) {
 		history: &thingscloud.History{Client: client, ID: "history", LatestSchemaVersion: 301},
 		state:   memory.NewState(),
 	}
-	envelope := writeEnvelope{id: "task-1", action: 0, kind: "Task6", payload: map[string]any{"tt": "reconciled"}}
+	envelope := writeEnvelope{id: taskID, action: 0, kind: "Task6", payload: map[string]any{"tt": "reconciled"}}
 	if err := tmcp.writeAndSync(envelope); err != nil {
 		t.Fatalf("reconciled write failed: %v", err)
 	}
 	if postCount != 1 {
 		t.Fatalf("commit was retried %d times", postCount)
 	}
-	if task := tmcp.state.Tasks["task-1"]; task == nil || task.Title != "reconciled" {
+	if task := tmcp.state.Tasks[taskID]; task == nil || task.Title != "reconciled" {
 		t.Fatalf("reconciled task missing: %#v", task)
 	}
 	if tmcp.history.LoadedServerIndex != 1 {
@@ -471,13 +473,16 @@ func TestAllReadToolHandlersRemainOperational(t *testing.T) {
 }
 
 func TestAllWriteToolHandlersRemainOperational(t *testing.T) {
+	areaID, tagID := thingscloud.NewUUID(), thingscloud.NewUUID()
+	projectID, headingID := thingscloud.NewUUID(), thingscloud.NewUUID()
+	taskID, checklistID := thingscloud.NewUUID(), thingscloud.NewUUID()
 	initial := []thingscloud.Item{
-		makeAreaItem("area-1", "Work"),
-		makeTagItem("tag-1", "Tag"),
-		makeTaskItem("project-1", withTitle("Project"), withTaskType(thingscloud.TaskTypeProject), withArea("area-1")),
-		makeTaskItem("heading-1", withTitle("Heading"), withTaskType(thingscloud.TaskTypeHeading), withParent("project-1")),
-		makeTaskItem("task-1", withTitle("Task"), withParent("project-1")),
-		makeChecklistItem("checklist-1", "task-1", "Step"),
+		makeAreaItem(areaID, "Work"),
+		makeTagItem(tagID, "Tag"),
+		makeTaskItem(projectID, withTitle("Project"), withTaskType(thingscloud.TaskTypeProject), withArea(areaID)),
+		makeTaskItem(headingID, withTitle("Heading"), withTaskType(thingscloud.TaskTypeHeading), withParent(projectID)),
+		makeTaskItem(taskID, withTitle("Task"), withParent(projectID)),
+		makeChecklistItem(checklistID, taskID, "Step"),
 	}
 	fc := newFakeCloud("test@example.com", initial...)
 	defer fc.Close()
@@ -494,31 +499,31 @@ func TestAllWriteToolHandlersRemainOperational(t *testing.T) {
 	}
 
 	call("create task", func() (*mcp.CallToolResult, error) {
-		return tmcp.handleCreateTask(context.Background(), makeReq(map[string]any{"title": "New Task", "project_uuid": "project-1"}))
+		return tmcp.handleCreateTask(context.Background(), makeReq(map[string]any{"title": "New Task", "project_uuid": projectID}))
 	})
 	call("create project", func() (*mcp.CallToolResult, error) {
-		return tmcp.handleCreateProject(context.Background(), makeReq(map[string]any{"title": "New Project", "area_uuid": "area-1"}))
+		return tmcp.handleCreateProject(context.Background(), makeReq(map[string]any{"title": "New Project", "area_uuid": areaID}))
 	})
 	call("create heading", func() (*mcp.CallToolResult, error) {
-		return tmcp.handleCreateHeading(context.Background(), makeReq(map[string]any{"title": "New Heading", "project_uuid": "project-1"}))
+		return tmcp.handleCreateHeading(context.Background(), makeReq(map[string]any{"title": "New Heading", "project_uuid": projectID}))
 	})
 	createdArea := call("create area", func() (*mcp.CallToolResult, error) {
 		return tmcp.handleCreateArea(context.Background(), makeReq(map[string]any{"name": "Temporary Area"}))
 	})
 	createdTag := call("create tag", func() (*mcp.CallToolResult, error) {
-		return tmcp.handleCreateTag(context.Background(), makeReq(map[string]any{"name": "Child", "parent_uuid": "tag-1"}))
+		return tmcp.handleCreateTag(context.Background(), makeReq(map[string]any{"name": "Child", "parent_uuid": tagID}))
 	})
 	call("edit area", func() (*mcp.CallToolResult, error) {
-		return tmcp.handleEditArea(context.Background(), makeReq(map[string]any{"uuid": "area-1", "name": "Work Renamed"}))
+		return tmcp.handleEditArea(context.Background(), makeReq(map[string]any{"uuid": areaID, "name": "Work Renamed"}))
 	})
 	call("edit tag", func() (*mcp.CallToolResult, error) {
-		return tmcp.handleEditTag(context.Background(), makeReq(map[string]any{"uuid": "tag-1", "name": "Tag Renamed"}))
+		return tmcp.handleEditTag(context.Background(), makeReq(map[string]any{"uuid": tagID, "name": "Tag Renamed"}))
 	})
 	call("edit item", func() (*mcp.CallToolResult, error) {
-		return tmcp.handleEditTask(context.Background(), makeReq(map[string]any{"uuid": "task-1", "title": "Task Renamed"}))
+		return tmcp.handleEditTask(context.Background(), makeReq(map[string]any{"uuid": taskID, "title": "Task Renamed"}))
 	})
 	createdChecklist := call("add checklist", func() (*mcp.CallToolResult, error) {
-		return tmcp.handleAddChecklistItem(context.Background(), makeReq(map[string]any{"task_uuid": "task-1", "title": "New Step"}))
+		return tmcp.handleAddChecklistItem(context.Background(), makeReq(map[string]any{"task_uuid": taskID, "title": "New Step"}))
 	})
 	call("edit checklist", func() (*mcp.CallToolResult, error) {
 		return tmcp.handleEditChecklistItem(context.Background(), makeReq(map[string]any{"uuid": createdChecklist["uuid"], "completed": true}))
@@ -536,8 +541,8 @@ func TestAllWriteToolHandlersRemainOperational(t *testing.T) {
 	if got, want := len(fc.getCommitLog()), 13; got != want {
 		t.Fatalf("backend commit count = %d, want %d", got, want)
 	}
-	if tmcp.state.Tasks["task-1"].Title != "Task Renamed" {
-		t.Fatalf("task edit not applied: %#v", tmcp.state.Tasks["task-1"])
+	if tmcp.state.Tasks[taskID].Title != "Task Renamed" {
+		t.Fatalf("task edit not applied: %#v", tmcp.state.Tasks[taskID])
 	}
 	if _, ok := tmcp.state.Areas[createdArea["uuid"]]; ok {
 		t.Fatal("deleted area remains in local state")

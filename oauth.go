@@ -1,3 +1,4 @@
+// This file implements OAuth authorization, token handling, and encrypted credential persistence.
 package main
 
 import (
@@ -491,6 +492,65 @@ func (o *OAuthServer) parseJWT(tokenStr string) (map[string]any, error) {
 	}
 
 	return claims, nil
+}
+
+// bearerToken parses the case-insensitive Bearer scheme and its space-separated
+// credentials. Malformed Bearer credentials still count as a Bearer attempt so
+// the transport rejects them instead of falling through to tool authentication.
+func bearerToken(authHeader string) (string, bool) {
+	scheme, token, _ := strings.Cut(authHeader, " ")
+	if !strings.EqualFold(scheme, "Bearer") {
+		return "", false
+	}
+	return strings.TrimLeft(token, " "), true
+}
+
+// quotedStringSafe removes characters that could escape an HTTP quoted value.
+func quotedStringSafe(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '"' || r == '\\' || r < 0x20 || r > 0x7e {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+// writeBearerChallenge reports HTTP authentication failure with OAuth discovery.
+func writeBearerChallenge(w http.ResponseWriter, base, reason string) {
+	challenge := "Bearer "
+	if reason != "" {
+		challenge += `error="invalid_token", error_description="` + quotedStringSafe(reason) + `", `
+	}
+	challenge += `resource_metadata="` + quotedStringSafe(base+"/.well-known/oauth-protected-resource") + `"`
+	w.Header().Set("WWW-Authenticate", challenge)
+	w.WriteHeader(http.StatusUnauthorized)
+}
+
+// requireBearer rejects invalid access tokens before MCP handlers can encode an
+// authentication failure as an HTTP 200 tool result. Basic credentials are
+// parsed here but authenticated by the existing Things Cloud handler path.
+func requireBearer(o *OAuthServer, next http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		headers := r.Header.Values("Authorization")
+		if len(headers) != 1 || headers[0] == "" {
+			writeBearerChallenge(w, getBaseURL(r), "")
+			return
+		}
+		if token, ok := bearerToken(headers[0]); ok {
+			if o == nil {
+				writeBearerChallenge(w, getBaseURL(r), "invalid access token")
+				return
+			}
+			if _, _, err := o.ResolveBearer(token); err != nil {
+				writeBearerChallenge(w, getBaseURL(r), "invalid access token")
+				return
+			}
+		} else if _, _, ok := r.BasicAuth(); !ok {
+			writeBearerChallenge(w, getBaseURL(r), "")
+			return
+		}
+		next.ServeHTTP(w, r)
+	}
 }
 
 // ResolveBearer validates a Bearer token and returns the user's ThingsMCP instance.

@@ -1,3 +1,4 @@
+// History operations read and commit Things Cloud's versioned event stream.
 package thingscloud
 
 import (
@@ -263,6 +264,9 @@ func (h *History) Write(items ...Identifiable) error {
 		if item.UUID() == "" {
 			return fmt.Errorf("commit contains an item with an empty UUID")
 		}
+		if err := ValidateUUID(item.UUID()); err != nil {
+			return fmt.Errorf("commit contains a non-canonical UUID: %w", err)
+		}
 		if _, exists := m[item.UUID()]; exists {
 			return fmt.Errorf("commit contains duplicate UUID %q", item.UUID())
 		}
@@ -298,7 +302,7 @@ func (h *History) Write(items ...Identifiable) error {
 	}
 	rs, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return err
+		return &CommitUncertainError{Err: fmt.Errorf("read commit response: %w", err)}
 	}
 	var w commitResponse
 	if err := json.Unmarshal(rs, &w); err != nil {

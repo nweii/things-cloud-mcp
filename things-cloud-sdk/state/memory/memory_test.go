@@ -1,3 +1,4 @@
+// These tests exercise in-memory task graph updates and query behavior.
 package memory
 
 import (
@@ -495,30 +496,16 @@ func TestStateUpdateRejectsMalformedKnownItem(t *testing.T) {
 	}
 }
 
-func TestStateUpdateSkipsUnknownKind(t *testing.T) {
-	s := NewState()
-	err := s.Update(
-		things.Item{
-			UUID:   "future-item",
-			Kind:   things.ItemKind("Task9"),
-			Action: things.ItemActionCreated,
-			P:      []byte(`{"tt":"from a newer Things"}`),
-		},
-		things.Item{
-			UUID:   "known-item",
-			Kind:   things.ItemKindTask,
-			Action: things.ItemActionCreated,
-			P:      []byte(`{"tt":"ordinary task"}`),
-		},
-	)
-	if err != nil {
-		t.Fatalf("unknown kind should be skipped, not rejected: %v", err)
-	}
-	if _, ok := s.Tasks["future-item"]; ok {
-		t.Fatal("unknown kind was applied to state")
-	}
-	if _, ok := s.Tasks["known-item"]; !ok {
-		t.Fatal("known item in the same batch was dropped")
+func TestStateUpdateRejectsUnknownKindAtomically(t *testing.T) {
+	for _, kind := range []things.ItemKind{"Task9", "Command4", "Area4", "Tag5", "ChecklistItem4", "Tombstone3"} {
+		s := NewState()
+		err := s.Update(
+			things.Item{UUID: "known-item", Kind: things.ItemKindTask, Action: things.ItemActionCreated, P: []byte(`{"tt":"ordinary task"}`)},
+			things.Item{UUID: "future-item", Kind: kind, Action: things.ItemActionCreated, P: []byte(`{"tt":"private title"}`)},
+		)
+		if err == nil || len(s.Tasks) != 0 {
+			t.Fatalf("kind %s: err=%v, tasks=%v", kind, err, s.Tasks)
+		}
 	}
 }
 
@@ -557,5 +544,33 @@ func TestStateUpdateIgnoresVersionedSettings(t *testing.T) {
 	}
 	if len(s.Tasks) != 0 || len(s.Areas) != 0 || len(s.Tags) != 0 || len(s.CheckListItems) != 0 {
 		t.Fatalf("settings changed task graph: %#v", s)
+	}
+}
+
+func TestStateUpdateIgnoresMailCommands(t *testing.T) {
+	s := NewState()
+	for _, kind := range []things.ItemKind{things.ItemKindCommand, things.ItemKindCommand3} {
+		for _, action := range []things.ItemAction{things.ItemActionCreated, things.ItemActionModified, things.ItemActionDeleted} {
+			if err := s.Update(things.Item{Kind: kind, Action: action, P: []byte(`{"if":{"nt":"private mail body"}}`)}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if len(s.Tasks)+len(s.Areas)+len(s.Tags)+len(s.CheckListItems) != 0 {
+		t.Fatal("mail changed graph")
+	}
+}
+
+func TestStateMalformedBatchIsAtomic(t *testing.T) {
+	s := NewState()
+	if err := s.Update(things.Item{UUID: "existing", Kind: things.ItemKindTask, P: []byte(`{"tt":"Original"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	err := s.Update(
+		things.Item{UUID: "existing", Kind: things.ItemKindTask, Action: things.ItemActionModified, P: []byte(`{"tt":"Changed"}`)},
+		things.Item{UUID: "bad", Kind: things.ItemKindTask2, P: []byte(`{"tt":42}`)},
+	)
+	if err == nil || s.Tasks["existing"].Title != "Original" {
+		t.Fatalf("err=%v state=%v", err, s.Tasks)
 	}
 }

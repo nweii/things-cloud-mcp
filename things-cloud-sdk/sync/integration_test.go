@@ -1,3 +1,4 @@
+// These tests exercise semantic change processing and persistent task state.
 package sync
 
 import (
@@ -161,7 +162,7 @@ func TestLegacyTombstone(t *testing.T) {
 		t.Fatalf("marshal task payload: %v", err)
 	}
 	if _, err := syncer.processItems([]things.Item{{
-		UUID:   "legacy-delete-target",
+		UUID:   things.EncodeLegacyIdentifier("AAAAAAAA-1111-2222-3333-BBBBBBBBBBBB"),
 		Kind:   things.ItemKindTask,
 		Action: things.ItemActionCreated,
 		P:      taskPayload,
@@ -170,16 +171,16 @@ func TestLegacyTombstone(t *testing.T) {
 	}
 
 	if _, err := syncer.processItems([]things.Item{{
-		UUID:   "legacy-tombstone",
+		UUID:   "CCCCCCCC-1111-2222-3333-DDDDDDDDDDDD",
 		Kind:   things.ItemKindTombstonePlain,
 		Action: things.ItemActionCreated,
-		P:      json.RawMessage(`{"dloid":"legacy-delete-target","dld":1577577600}`),
+		P:      json.RawMessage(`{"dloid":"AAAAAAAA-1111-2222-3333-BBBBBBBBBBBB","dld":1577577600}`),
 	}}, 1); err != nil {
 		t.Fatalf("process legacy Tombstone: %v", err)
 	}
 
 	var deleted int
-	if err := syncer.rawDB.QueryRow(`SELECT deleted FROM tasks WHERE uuid = ?`, "legacy-delete-target").Scan(&deleted); err != nil {
+	if err := syncer.rawDB.QueryRow(`SELECT deleted FROM tasks WHERE uuid = ?`, things.EncodeLegacyIdentifier("AAAAAAAA-1111-2222-3333-BBBBBBBBBBBB")).Scan(&deleted); err != nil {
 		t.Fatalf("read deleted flag: %v", err)
 	}
 	if deleted != 1 {

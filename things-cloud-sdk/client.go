@@ -1,14 +1,19 @@
+// This file configures Things Cloud HTTP requests and handles bounded retries for rate-limited reads.
 package thingscloud
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -18,6 +23,8 @@ const (
 	// APIEndpoint is the public culturedcode https endpoint
 	APIEndpoint        = "https://cloud.culturedcode.com"
 	defaultHTTPTimeout = 30 * time.Second
+	maxReadRetries     = 3
+	maxReadRetryWait   = 15 * time.Second
 )
 
 var (
@@ -31,18 +38,32 @@ type APIError struct {
 	StatusCode     int
 	Status         string
 	ThingsResponse string // value of the "things-response" header, e.g. "AbusePrevention"
+	RetryAfter     string // server's Retry-After guidance for a rate-limited response
 }
 
 func (e *APIError) Error() string {
+	message := fmt.Sprintf("things cloud: %s", e.Status)
 	if e.ThingsResponse != "" {
-		return fmt.Sprintf("things cloud: %s (things-response: %s)", e.Status, e.ThingsResponse)
+		message += fmt.Sprintf(" (things-response: %s)", e.ThingsResponse)
 	}
-	return fmt.Sprintf("things cloud: %s", e.Status)
+	if e.StatusCode == http.StatusTooManyRequests {
+		if e.RetryAfter != "" {
+			message += fmt.Sprintf("; retry later according to Retry-After: %q", e.RetryAfter)
+		} else {
+			message += "; retry later"
+		}
+	}
+	return message
 }
 
 // IsAbusePrevention reports whether the error is a Things Cloud abuse prevention block.
 func (e *APIError) IsAbusePrevention() bool {
 	return e.StatusCode == http.StatusTooManyRequests && e.ThingsResponse == "AbusePrevention"
+}
+
+// IsOutdatedAncestor reports a stale history cursor rejected by Things Cloud.
+func (e *APIError) IsOutdatedAncestor() bool {
+	return e.StatusCode == http.StatusConflict && e.ThingsResponse == "OutdatedAncestor"
 }
 
 // newAPIError creates an APIError from an HTTP response.
@@ -51,6 +72,7 @@ func newAPIError(resp *http.Response) *APIError {
 		StatusCode:     resp.StatusCode,
 		Status:         resp.Status,
 		ThingsResponse: resp.Header.Get("Things-Response"),
+		RetryAfter:     resp.Header.Get("Retry-After"),
 	}
 }
 
@@ -189,13 +211,77 @@ func (c *Client) do(req *http.Request) (*http.Response, error) {
 		log.Println("REQUEST:", string(bs))
 	}
 
-	resp, err := c.client.Do(req)
-	if c.Debug {
-		if err == nil {
-			bs, _ := httputil.DumpResponse(resp, true)
-			log.Println("RESPONSE:", string(bs))
+	canRetry := (req.Method == http.MethodGet || req.Method == http.MethodHead) && (req.Body == nil || req.Body == http.NoBody)
+	var retryStarted time.Time
+	var waited time.Duration
+	for attempt := 0; ; attempt++ {
+		if attempt > 0 {
+			if err := c.rateLimiter.Wait(req.Context()); err != nil {
+				return nil, fmt.Errorf("rate limit wait: %w", err)
+			}
 		}
-		log.Println()
+		resp, err := c.client.Do(req)
+		if c.Debug {
+			if err == nil {
+				bs, _ := httputil.DumpResponse(resp, true)
+				log.Println("RESPONSE:", string(bs))
+			}
+			log.Println()
+		}
+		if err != nil || !canRetry || resp.StatusCode != http.StatusTooManyRequests || attempt >= maxReadRetries {
+			return resp, err
+		}
+		if retryStarted.IsZero() {
+			retryStarted = time.Now()
+		}
+		delay := readRetryDelay(resp.Header.Get("Retry-After"), attempt, time.Now())
+		// Return the rate limit response intact when the server's requested wait
+		// exceeds our budget; retrying early would ignore its backoff guidance.
+		if delay > maxReadRetryWait-waited || delay > maxReadRetryWait-time.Since(retryStarted) {
+			return resp, nil
+		}
+		resp.Body.Close()
+		if err := waitForReadRetry(req.Context(), delay); err != nil {
+			return nil, fmt.Errorf("rate limit retry wait: %w", err)
+		}
+		waited += delay
 	}
-	return resp, err
+}
+
+// readRetryDelay honors valid Retry-After values and otherwise uses exponential backoff with jitter.
+func readRetryDelay(header string, attempt int, now time.Time) time.Duration {
+	header = strings.TrimSpace(header)
+	digits := header != ""
+	for _, ch := range header {
+		if ch < '0' || ch > '9' {
+			digits = false
+			break
+		}
+	}
+	if digits {
+		seconds, err := strconv.ParseUint(header, 10, 64)
+		if err != nil || seconds > uint64(maxReadRetryWait/time.Second) {
+			return maxReadRetryWait + time.Second
+		}
+		return time.Duration(seconds) * time.Second
+	}
+	if date, err := http.ParseTime(header); err == nil {
+		if delay := date.Sub(now); delay > 0 {
+			return delay
+		}
+		return 0
+	}
+	return (500 * time.Millisecond << attempt) + time.Duration(rand.Int64N(int64(250*time.Millisecond)))
+}
+
+// waitForReadRetry allows request cancellation to interrupt the backoff delay.
+func waitForReadRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return ctx.Err()
+	}
 }
