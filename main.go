@@ -1,3 +1,4 @@
+// The server exposes Things Cloud task operations through authenticated MCP tools.
 package main
 
 import (
@@ -5,14 +6,12 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/crc32"
 	"hash/fnv"
 	"log"
-	"math/big"
 	"net/http"
 	"net/url"
 	"os"
@@ -174,29 +173,11 @@ func defaultExtension() WireExtension {
 }
 
 func generateUUID() string {
-	u := uuid.New()
-	const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-	n := new(big.Int).SetBytes(u[:])
-	base := big.NewInt(58)
-	mod := new(big.Int)
-	var encoded []byte
-	for n.Sign() > 0 {
-		n.DivMod(n, base, mod)
-		encoded = append(encoded, alphabet[mod.Int64()])
-	}
-	for i, j := 0, len(encoded)-1; i < j; i, j = i+1, j-1 {
-		encoded[i], encoded[j] = encoded[j], encoded[i]
-	}
-	return string(encoded)
+	return thingscloud.NewUUID()
 }
 
 func nowTs() float64 {
 	return float64(time.Now().UnixNano()) / 1e9
-}
-
-func todayMidnightUTC() int64 {
-	now := time.Now()
-	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).Unix()
 }
 
 // ---------------------------------------------------------------------------
@@ -552,7 +533,7 @@ func newTaskCreatePayload(title string, opts map[string]string, ix int) TaskCrea
 	var icsd *int64
 	if v, ok := opts["recurrence"]; ok && v != "" {
 		// Use schedule date as reference for weekday, fall back to today
-		recRef := time.Now()
+		recRef := userToday()
 		if schedStr, ok := opts["schedule"]; ok {
 			if dt := parseDate(schedStr); dt != nil {
 				recRef = *dt
@@ -596,7 +577,7 @@ func splitRecurringPayload(payload TaskCreatePayload) (string, TaskCreatePayload
 	if payload.Rr == nil {
 		return "", TaskCreatePayload{}, TaskCreatePayload{}, fmt.Errorf("recurrence rule is required")
 	}
-	reference := time.Now().UTC()
+	reference := userToday()
 	if payload.Tir != nil {
 		reference = time.Unix(*payload.Tir, 0).UTC()
 	} else if payload.Sr != nil {
@@ -815,12 +796,6 @@ func scheduleString(st thingscloud.TaskSchedule, scheduledDate *time.Time, start
 	}
 }
 
-// isToday returns true if t falls on today's date (UTC).
-func isToday(t time.Time) bool {
-	now := time.Now().UTC()
-	return t.Year() == now.Year() && t.Month() == now.Month() && t.Day() == now.Day()
-}
-
 // effectiveScheduledDate returns the date Things uses for the visible
 // occurrence. tir advances for recurring instances while sr may remain on the
 // first occurrence.
@@ -845,8 +820,7 @@ func isScheduledForTodayOrPast(task *thingscloud.Task) bool {
 	if date == nil {
 		return false
 	}
-	now := time.Now().UTC()
-	todayEnd := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, now.Location())
+	todayEnd := userTodayEnd()
 	return !date.After(todayEnd)
 }
 
@@ -1116,25 +1090,15 @@ func (um *UserManager) httpContextFunc(ctx context.Context, r *http.Request) con
 		return ctx
 	}
 
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		// Store raw token for JWT validation (implemented by OAuth task)
-		token := strings.TrimPrefix(authHeader, "Bearer ")
+	if token, ok := bearerToken(authHeader); ok {
+		// The transport validates the token before handlers resolve credentials.
 		return context.WithValue(ctx, userContextKey, &UserInfo{Token: token})
 	}
 
-	if strings.HasPrefix(authHeader, "Basic ") {
-		encoded := strings.TrimPrefix(authHeader, "Basic ")
-		decoded, err := base64.StdEncoding.DecodeString(encoded)
-		if err != nil {
-			return ctx
-		}
-		parts := strings.SplitN(string(decoded), ":", 2)
-		if len(parts) != 2 {
-			return ctx
-		}
+	if email, password, ok := r.BasicAuth(); ok {
 		return context.WithValue(ctx, userContextKey, &UserInfo{
-			Email:    parts[0],
-			Password: parts[1],
+			Email:    email,
+			Password: password,
 		})
 	}
 
@@ -1333,7 +1297,21 @@ func (t *ThingsMCP) healNonPositiveIndex(items []thingscloud.Identifiable) {
 	}
 }
 
+// writeAndSync retries only a confirmed stale-ancestor rejection. Uncertain
+// commits remain read-reconciled and are never submitted a second time.
 func (t *ThingsMCP) writeAndSync(items ...thingscloud.Identifiable) error {
+	const outdatedAncestorRetries = 3
+	for attempt := 0; ; attempt++ {
+		err := t.writeAndSyncOnce(items...)
+		var apiErr *thingscloud.APIError
+		if err == nil || !errors.As(err, &apiErr) || !apiErr.IsOutdatedAncestor() || attempt >= outdatedAncestorRetries {
+			return err
+		}
+		time.Sleep(time.Duration(attempt+1) * 250 * time.Millisecond)
+	}
+}
+
+func (t *ThingsMCP) writeAndSyncOnce(items ...thingscloud.Identifiable) error {
 	expected, err := identifiableItems(items)
 	if err != nil {
 		return fmt.Errorf("validate commit: %w", err)
@@ -1349,6 +1327,15 @@ func (t *ThingsMCP) writeAndSync(items ...thingscloud.Identifiable) error {
 	// Guard against the Things sync-engine crash on non-positive sort indexes,
 	// using the state just refreshed by the pre-write sync.
 	t.healNonPositiveIndex(items)
+	// Healing changes the posted payload. Revalidate and apply that exact event
+	// locally after success, including when a rejected write is retried.
+	expected, err = identifiableItems(items)
+	if err != nil {
+		return fmt.Errorf("validate healed commit: %w", err)
+	}
+	if err := memory.NewState().Update(expected...); err != nil {
+		return fmt.Errorf("validate healed commit payload: %w", err)
+	}
 	if err := t.history.Write(items...); err != nil {
 		var uncertain *thingscloud.CommitUncertainError
 		if errors.As(err, &uncertain) {
@@ -1391,6 +1378,9 @@ func identifiableItems(items []thingscloud.Identifiable) ([]thingscloud.Item, er
 	for _, identifiable := range items {
 		if identifiable == nil || identifiable.UUID() == "" {
 			return nil, fmt.Errorf("item UUID is required")
+		}
+		if err := thingscloud.ValidateUUID(identifiable.UUID()); err != nil {
+			return nil, fmt.Errorf("non-canonical item UUID: %w", err)
 		}
 		bs, err := json.Marshal(identifiable)
 		if err != nil {
@@ -1858,6 +1848,7 @@ func outputSchemaFor(toolName string) json.RawMessage {
 				"steps": map[string]any{"type": "array"}, "summary": map[string]any{"type": "object"},
 				"warnings": map[string]any{"type": "array", "items": stringSchema()},
 				"errors":   map[string]any{"type": "array", "items": stringSchema()}, "shareUrl": stringSchema(),
+				"syncCacheReset": map[string]any{"type": "boolean"},
 			}, "required": []string{"steps", "summary", "warnings", "errors"},
 		}
 	}
@@ -1904,6 +1895,11 @@ type diagReport struct {
 	Summary  diagSummary `json:"summary"`
 	Warnings []string    `json:"warnings"`
 	Errors   []string    `json:"errors"`
+}
+
+// emptyDiagReport initializes the required array fields for schema-valid JSON.
+func emptyDiagReport() *diagReport {
+	return &diagReport{Steps: []diagStep{}, Warnings: []string{}, Errors: []string{}}
 }
 
 // DiagStore handles persistence of shareable diagnosis reports.
@@ -2010,9 +2006,9 @@ func extractCredentials(ctx context.Context, um *UserManager) (string, string, e
 // ---------------------------------------------------------------------------
 
 func (t *ThingsMCP) handleDiagnose(email, password string) *diagReport {
-	report := &diagReport{}
-	var allWarnings []string
-	var allErrors []string
+	report := emptyDiagReport()
+	allWarnings := []string{}
+	allErrors := []string{}
 
 	// Step 1: credential_verification
 	step1 := diagStep{
@@ -2133,7 +2129,7 @@ func (t *ThingsMCP) handleDiagnose(email, password string) *diagReport {
 			if ierr == nil {
 				var newestDate time.Time
 				for _, item := range items {
-					if item.Kind != thingscloud.ItemKindTask {
+					if !thingscloud.IsTaskKind(item.Kind) {
 						continue
 					}
 					var payload thingscloud.TaskActionItemPayload
@@ -2342,7 +2338,7 @@ func (t *ThingsMCP) diagnoseSteps4to7(history *thingscloud.History, report *diag
 		}
 		for _, item := range allItems[tailStart:] {
 			ti := tailItem{Kind: string(item.Kind), Action: int(item.Action)}
-			if item.Kind == thingscloud.ItemKindTask {
+			if thingscloud.IsTaskKind(item.Kind) {
 				var payload thingscloud.TaskActionItemPayload
 				if uerr := json.Unmarshal(item.P, &payload); uerr == nil {
 					if payload.CreationDate != nil {
@@ -3432,8 +3428,7 @@ func (t *ThingsMCP) handleOverview(_ context.Context, req mcp.CallToolRequest) (
 	// --- Today tasks ---
 	todaySet := make(map[string]bool)
 	var todayRaw []*thingscloud.Task
-	now := time.Now().UTC()
-	todayEnd := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, now.Location())
+	todayEnd := userTodayEnd()
 	cutoff := todayEnd.AddDate(0, 0, lookahead)
 
 	for _, task := range state.Tasks {
@@ -3957,7 +3952,7 @@ func (t *ThingsMCP) handleEditTask(_ context.Context, req mcp.CallToolRequest) (
 			}
 		} else {
 			// Add or change recurrence
-			recRef := time.Now()
+			recRef := userToday()
 			if schedStr := req.GetString("schedule", ""); schedStr != "" {
 				if dt := parseDate(schedStr); dt != nil {
 					recRef = *dt
@@ -4489,11 +4484,12 @@ func defineTools(um *UserManager) []server.ServerTool {
 		// --- Diagnosis tool ---
 		{
 			Tool: mcp.NewTool("things_diagnose",
-				mcp.WithDescription("Run a full diagnostic of the Things Cloud sync pipeline. Tests credentials, fetches history, paginates through all items, rebuilds state, checks data integrity, and runs query tests. Returns a detailed step-by-step report with logs, timing, and any warnings or errors. Use this to debug sync issues like missing or stale tasks."),
+				mcp.WithDescription("Run a full diagnostic of the Things Cloud sync pipeline. Tests credentials, fetches history, paginates through all items, rebuilds state, checks data integrity, and runs query tests. Returns a detailed step-by-step report with logs, timing, and any warnings or errors. Set reset_sync_cache=true after resetting or overwriting the Things Cloud account to rebuild this server's cached task graph and cursor from the verified authoritative history. Does not change Things Cloud data."),
 				mcp.WithReadOnlyHintAnnotation(true),
 				mcp.WithDestructiveHintAnnotation(false),
 				mcp.WithIdempotentHintAnnotation(true),
 				mcp.WithOpenWorldHintAnnotation(false),
+				mcp.WithBoolean("reset_sync_cache", mcp.Description("Explicitly rebuild the server's sync cache from freshly verified account history before diagnosis. Default false. Use after resetting or overwriting Things Cloud; failed rebuilds preserve the existing cache.")),
 			),
 			Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				email, password, err := extractCredentials(ctx, um)
@@ -4506,14 +4502,21 @@ func defineTools(um *UserManager) []server.ServerTool {
 				}
 				t.opMu.Lock()
 				defer t.opMu.Unlock()
+				resetCache := req.GetBool("reset_sync_cache", false)
+				if resetCache {
+					if err := t.resetSyncCache(); err != nil {
+						return errResult(err.Error()), nil
+					}
+				}
 				report := t.handleDiagnose(email, password)
 
 				// Store report and generate shareable URL
 				type diagResponse struct {
 					*diagReport
-					ShareURL string `json:"shareUrl,omitempty"`
+					ShareURL       string `json:"shareUrl,omitempty"`
+					SyncCacheReset bool   `json:"syncCacheReset,omitempty"`
 				}
-				resp := diagResponse{diagReport: report}
+				resp := diagResponse{diagReport: report, SyncCacheReset: resetCache}
 				if um.diagStore != nil {
 					if token, storeErr := um.diagStore.Store(email, report); storeErr == nil {
 						if base := getBaseURLFromContext(ctx); base != "" {
@@ -4545,6 +4548,7 @@ func serveDiagReportPage(w http.ResponseWriter, reportJSON string) {
 // ---------------------------------------------------------------------------
 
 func main() {
+	configureDateCalendar(loadUserTimeZone(os.Getenv))
 	log.SetFlags(log.Ltime | log.Lmsgprefix)
 	log.SetPrefix("[things-mcp] ")
 	proxyURLs := parseProxyURLs(os.Getenv("PROXY_URLS"))
@@ -4618,17 +4622,8 @@ func main() {
 		streamServer.ServeHTTP(w, r)
 	})
 
-	// Wrap /mcp handler with 401 WWW-Authenticate for unauthenticated requests
-	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			base := getBaseURL(r)
-			w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+base+`/.well-known/oauth-protected-resource"`)
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		streamServer.ServeHTTP(w, r)
-	})
+	// Reject missing and invalid tokens at the transport so clients can refresh.
+	mux.HandleFunc("/mcp", requireBearer(oauth, streamServer))
 
 	// OAuth 2.1 routes (path-aware per RFC 9728: client appends resource path)
 	mux.HandleFunc("/.well-known/oauth-protected-resource", oauth.handleProtectedResourceMetadata)

@@ -1,3 +1,4 @@
+// These tests exercise identifier migration while replaying legacy history records.
 package memory
 
 import (
@@ -150,6 +151,7 @@ func TestStateAllLegacyKindsUseMigratedKeys(t *testing.T) {
 		has  func(*State, string) bool
 	}{
 		{"Task4", things.ItemKindTask4, func(s *State, id string) bool { return s.Tasks[id] != nil }},
+		{"Task2", things.ItemKindTask2, func(s *State, id string) bool { return s.Tasks[id] != nil }},
 		{"Task3", things.ItemKindTask3, func(s *State, id string) bool { return s.Tasks[id] != nil }},
 		{"Task", things.ItemKindTaskPlain, func(s *State, id string) bool { return s.Tasks[id] != nil }},
 		{"ChecklistItem2", things.ItemKindChecklistItem2, func(s *State, id string) bool { return s.CheckListItems[id] != nil }},
@@ -157,6 +159,7 @@ func TestStateAllLegacyKindsUseMigratedKeys(t *testing.T) {
 		{"Area2", things.ItemKindArea, func(s *State, id string) bool { return s.Areas[id] != nil }},
 		{"Area", things.ItemKindAreaPlain, func(s *State, id string) bool { return s.Areas[id] != nil }},
 		{"Tag3", things.ItemKindTag, func(s *State, id string) bool { return s.Tags[id] != nil }},
+		{"Tag2", things.ItemKindTag2, func(s *State, id string) bool { return s.Tags[id] != nil }},
 		{"Tag", things.ItemKindTagPlain, func(s *State, id string) bool { return s.Tags[id] != nil }},
 	}
 	for _, test := range tests {
@@ -183,5 +186,34 @@ func assertIDs(t *testing.T, field string, got []string, want ...string) {
 			t.Errorf("%s = %v, want %v", field, got, want)
 			return
 		}
+	}
+}
+
+func TestStateTask2AndTag2Lifecycle(t *testing.T) {
+	const legacyID = "AAAAAAAA-1111-2222-3333-BBBBBBBBBBBB"
+	canonicalID := things.EncodeLegacyIdentifier(legacyID)
+	for _, kind := range []things.ItemKind{things.ItemKindTask2, things.ItemKindTag2} {
+		t.Run(string(kind), func(t *testing.T) {
+			s := NewState()
+			if err := s.Update(
+				things.Item{UUID: legacyID, Kind: kind, P: json.RawMessage(`{"tt":"Created"}`)},
+				things.Item{UUID: legacyID, Kind: kind, Action: things.ItemActionModified, P: json.RawMessage(`{"tt":"Changed"}`)},
+			); err != nil {
+				t.Fatal(err)
+			}
+			if kind == things.ItemKindTask2 {
+				if s.Tasks[canonicalID] == nil || s.Tasks[canonicalID].Title != "Changed" {
+					t.Fatal("legacy task update missed canonical key")
+				}
+			} else if s.Tags[canonicalID] == nil || s.Tags[canonicalID].Title != "Changed" {
+				t.Fatal("legacy tag update missed canonical key")
+			}
+			if err := s.Update(things.Item{UUID: legacyID, Kind: kind, Action: things.ItemActionDeleted, P: json.RawMessage(`{}`)}); err != nil {
+				t.Fatal(err)
+			}
+			if len(s.Tasks)+len(s.Tags) != 0 {
+				t.Fatal("legacy deletion left canonical object")
+			}
+		})
 	}
 }

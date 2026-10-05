@@ -94,7 +94,7 @@ This repository is a deployment-hardened fork of [wbopan/things-cloud-mcp](https
 
 ## What the fork adds
 
-The delta is deployment machinery, not features. Upstream documents Fly.io hosting; the fork adds what self-hosting on a container host needs:
+The fork adds container deployment machinery and correctness fixes. Upstream documents Fly.io hosting; the fork supplies:
 
 - a hardened `Dockerfile` (digest-pinned base images, static CGO-free binary, non-root user),
 - a portable `compose.yaml` (read-only rootfs, all capabilities dropped, loopback bind by default, host specifics injected via environment),
@@ -103,6 +103,15 @@ The delta is deployment machinery, not features. Upstream documents Fly.io hosti
 - any bug fixes not yet merged upstream.
 
 Bug fixes discovered here get contributed back upstream rather than accumulating as fork-only behavior.
+
+## Runtime safeguards
+
+- Task IDs use the SDK's canonical Base58 encoder, including leading zero bytes. Both the MCP commit path and SDK `History.Write` reject non-canonical IDs before POST.
+- Task7 and legacy Task2/Tag2 records are decoded explicitly. Exact `Command` and `Command3` mail queue records are ignored without decoding or logging their email payloads. Unknown business-record kinds, actions, and malformed payloads reject the whole batch before state or cursor changes.
+- Expired, invalid, or malformed Bearer credentials return HTTP 401 with an OAuth discovery challenge before reaching MCP handlers. Valid Basic credentials retain their Things Cloud authentication path.
+- `MCP_TIMEZONE` selects the server-wide calendar zone, falling back to `TZ`, then UTC. Timezone data is embedded for minimal images. Date-only values retain their UTC calendar day; pick today's date in the configured zone before anchoring it at UTC midnight.
+- Bodyless GET/HEAD requests retry confirmed HTTP 429 responses at most three times, honoring `Retry-After` within a 15-second wait budget. Writes retry only confirmed HTTP 409 `OutdatedAncestor` rejections, resynchronizing before each attempt, at most three times. Transport failures and incomplete successful commit responses remain uncertain commits and are never retried automatically.
+- `things_diagnose` accepts `reset_sync_cache=true` to explicitly rebuild the account cache from a freshly verified authoritative history. The account operation lock covers recovery and diagnosis. Swap the complete candidate state and cursor only after successful validation; failures preserve the existing cache. Recovery changes no Things Cloud data and is never an automatic fallback from normal sync errors.
 
 ## Branch layout
 

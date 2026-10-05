@@ -1,3 +1,4 @@
+// These tests cover history reads and validation at the commit boundary.
 package thingscloud
 
 import (
@@ -55,7 +56,7 @@ func TestHistoryWriteRejectsMalformedCommitResponse(t *testing.T) {
 
 	c := New(server.URL, "test@example.com", "password")
 	h := &History{Client: c, ID: "history", LatestServerIndex: 7, LatestSchemaVersion: 301}
-	if err := h.Write(testIdentifiable{ID: "task-1", T: 1}); err == nil {
+	if err := h.Write(testIdentifiable{ID: NewUUID(), T: 1}); err == nil {
 		t.Fatal("expected malformed response error")
 	}
 	if h.LatestServerIndex != 7 {
@@ -75,7 +76,7 @@ func TestHistoryWriteRejectsUnsupportedSchema(t *testing.T) {
 
 	c := New(server.URL, "test@example.com", "password")
 	h := &History{Client: c, ID: "history", LatestServerIndex: 8, LatestSchemaVersion: 302}
-	if err := h.Write(testIdentifiable{ID: "task-1", T: 1}); err == nil {
+	if err := h.Write(testIdentifiable{ID: NewUUID(), T: 1}); err == nil {
 		t.Fatal("expected unsupported schema error")
 	}
 	if calls != 0 {

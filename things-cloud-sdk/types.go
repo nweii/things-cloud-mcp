@@ -1,3 +1,4 @@
+// This file defines Things Cloud wire kinds, actions, and payload value types.
 package thingscloud
 
 //go:generate stringer -type ItemAction,TaskStatus,TaskSchedule
@@ -64,9 +65,10 @@ var (
 	// payload decodes into TaskActionItemPayload like the earlier versions:
 	// observed records carry the same abbreviated field names, and a record
 	// that omits a field is a partial update rather than a different shape.
-	ItemKindTask7 ItemKind = "Task7"
-	ItemKindTask4 ItemKind = "Task4"
-	ItemKindTask3 ItemKind = "Task3"
+	ItemKindTask7     ItemKind = "Task7"
+	ItemKindTask4     ItemKind = "Task4"
+	ItemKindTask3     ItemKind = "Task3"
+	ItemKindTask2     ItemKind = "Task2"
 	ItemKindTaskPlain ItemKind = "Task"
 	// ItemKindArea identifies an Area
 	ItemKindArea      ItemKind = "Area2"
@@ -75,14 +77,29 @@ var (
 	// ItemKindSettings  identifies a setting
 	ItemKindSettings ItemKind = "Settings3"
 	// ItemKindTag identifies a Tag
-	ItemKindTag            ItemKind = "Tag3"
-	ItemKindTag4           ItemKind = "Tag4"
-	ItemKindTagPlain       ItemKind = "Tag"
+	ItemKindTag      ItemKind = "Tag3"
+	ItemKindTag4     ItemKind = "Tag4"
+	ItemKindTag2     ItemKind = "Tag2"
+	ItemKindTagPlain ItemKind = "Tag"
 	// ItemKindTombstone is the current deletion-record kind.
-	ItemKindTombstone      ItemKind = "Tombstone2"
+	ItemKindTombstone ItemKind = "Tombstone2"
 	// ItemKindTombstonePlain is the legacy deletion-record kind found in older histories.
 	ItemKindTombstonePlain ItemKind = "Tombstone"
+	// ItemKindCommand identifies a Mail to Things queue entry containing email data.
+	ItemKindCommand ItemKind = "Command"
+	// ItemKindCommand3 identifies the supported modern Mail to Things queue entry.
+	ItemKindCommand3 ItemKind = "Command3"
 )
+
+// IsTaskKind reports the task record versions this SDK can decode.
+func IsTaskKind(kind ItemKind) bool {
+	switch kind {
+	case ItemKindTaskPlain, ItemKindTask2, ItemKindTask3, ItemKindTask4, ItemKindTask, ItemKindTask7:
+		return true
+	default:
+		return false
+	}
+}
 
 // IsSettingsKind reports whether kind is a versioned Things settings record.
 // Settings are account metadata and do not contribute to the task graph. Treat
@@ -100,6 +117,12 @@ func IsSettingsKind(kind ItemKind) bool {
 		}
 	}
 	return true
+}
+
+// IsCommandKind identifies supported Mail to Things queue records. Their task
+// arrives separately; future versions require explicit support before replay.
+func IsCommandKind(kind ItemKind) bool {
+	return kind == ItemKindCommand || kind == ItemKindCommand3
 }
 
 // Timestamp allows unix epochs represented as float or ints to be unmarshalled
@@ -206,55 +229,55 @@ const (
 // 33|nextInstanceStartDate|REAL|0||0
 // 34|dueDateSuppressionDate|REAL|0||0
 type Task struct {
-	UUID             string
-	CreationDate     time.Time
-	ModificationDate *time.Time
-	Status           TaskStatus
-	Title            string
-	Note             string
-	ScheduledDate    *time.Time
-	CompletionDate   *time.Time
-	DeadlineDate     *time.Time
-	Index            int
-	AreaIDs          []string
-	ParentTaskIDs    []string
-	ActionGroupIDs   []string
-	InTrash         bool
-	Schedule        TaskSchedule
-	Type            TaskType
-	TodayIndex       int
+	UUID              string
+	CreationDate      time.Time
+	ModificationDate  *time.Time
+	Status            TaskStatus
+	Title             string
+	Note              string
+	ScheduledDate     *time.Time
+	CompletionDate    *time.Time
+	DeadlineDate      *time.Time
+	Index             int
+	AreaIDs           []string
+	ParentTaskIDs     []string
+	ActionGroupIDs    []string
+	InTrash           bool
+	Schedule          TaskSchedule
+	Type              TaskType
+	TodayIndex        int
 	TodayIndexRefDate *time.Time
-	DueOrder         int
-	StartBucket      int // 0=default, 1=tonight (column 29: startBucket, wire: sb)
-	AlarmTimeOffset *int
-	TagIDs          []string
-	RecurrenceIDs   []string
-	DelegateIDs     []string
-	Repeater        *RepeaterConfiguration
+	DueOrder          int
+	StartBucket       int // 0=default, 1=tonight (column 29: startBucket, wire: sb)
+	AlarmTimeOffset   *int
+	TagIDs            []string
+	RecurrenceIDs     []string
+	DelegateIDs       []string
+	Repeater          *RepeaterConfiguration
 }
 
 // TaskActionItemPayload describes the payload for modifying Tasks, and also Projects,
 // as projects are special kind of Tasks
 type TaskActionItemPayload struct {
-	Index             *int                   `json:"ix,omitempty"`
-	CreationDate      *Timestamp             `json:"cd,omitempty"`
-	ModificationDate  *Timestamp             `json:"md,omitempty"` // ok
-	ScheduledDate     *Timestamp             `json:"sr,omitempty"`
-	CompletionDate    *Timestamp             `json:"sp,omitempty"`
-	DeadlineDate      *Timestamp             `json:"dd,omitempty"`  //
-	TaskIR            *Timestamp             `json:"tir,omitempty"` // hm, not sure what tir stands for
-	Status            *TaskStatus            `json:"ss,omitempty"`
-	Type              *TaskType              `json:"tp,omitempty"`
-	Title             *string                `json:"tt,omitempty"`
-	Note              json.RawMessage        `json:"nt,omitempty"`
-	AreaIDs           *[]string              `json:"ar,omitempty"`
-	ParentTaskIDs     *[]string              `json:"pr,omitempty"`
-	TagIDs            []string               `json:"tg,omitempty"`
-	InTrash           *bool                  `json:"tr,omitempty"`
-	TaskIndex         *int                   `json:"ti,omitempty"`
-	RecurrenceTaskIDs *[]string              `json:"rt,omitempty"`
-	Schedule          *TaskSchedule          `json:"st,omitempty"`
-	ActionGroupIDs    *[]string              `json:"agr,omitempty"`
+	Index                     *int                   `json:"ix,omitempty"`
+	CreationDate              *Timestamp             `json:"cd,omitempty"`
+	ModificationDate          *Timestamp             `json:"md,omitempty"` // ok
+	ScheduledDate             *Timestamp             `json:"sr,omitempty"`
+	CompletionDate            *Timestamp             `json:"sp,omitempty"`
+	DeadlineDate              *Timestamp             `json:"dd,omitempty"`  //
+	TaskIR                    *Timestamp             `json:"tir,omitempty"` // hm, not sure what tir stands for
+	Status                    *TaskStatus            `json:"ss,omitempty"`
+	Type                      *TaskType              `json:"tp,omitempty"`
+	Title                     *string                `json:"tt,omitempty"`
+	Note                      json.RawMessage        `json:"nt,omitempty"`
+	AreaIDs                   *[]string              `json:"ar,omitempty"`
+	ParentTaskIDs             *[]string              `json:"pr,omitempty"`
+	TagIDs                    []string               `json:"tg,omitempty"`
+	InTrash                   *bool                  `json:"tr,omitempty"`
+	TaskIndex                 *int                   `json:"ti,omitempty"`
+	RecurrenceTaskIDs         *[]string              `json:"rt,omitempty"`
+	Schedule                  *TaskSchedule          `json:"st,omitempty"`
+	ActionGroupIDs            *[]string              `json:"agr,omitempty"`
 	Repeater                  *RepeaterConfiguration `json:"rr,omitempty"`
 	DueOrder                  *int                   `json:"do,omitempty"`
 	Leavable                  *bool                  `json:"lt,omitempty"`
@@ -330,9 +353,9 @@ type Tag struct {
 // TagActionItemPayload describes the payload for modifying Areas
 type TagActionItemPayload struct {
 	IX            *int            `json:"ix"`
-	Title         *string        `json:"tt"`
-	ShortHand     *string        `json:"sh"`
-	ParentTagIDs  *[]string      `json:"pn"`
+	Title         *string         `json:"tt"`
+	ShortHand     *string         `json:"sh"`
+	ParentTagIDs  *[]string       `json:"pn"`
 	ExtensionData json.RawMessage `json:"xx,omitempty"`
 }
 
@@ -385,14 +408,14 @@ func (item AreaActionItem) UUID() string {
 }
 
 // CheckListItem describes a check list item
-//0|uuid|TEXT|0||1
-//1|userModificationDate|REAL|0||0
-//2|creationDate|REAL|0||0
-//3|title|TEXT|0||0
-//4|status|INTEGER|0||0
-//5|stopDate|REAL|0||0
-//6|index|INTEGER|0||0
-//7|task|TEXT|0||0
+// 0|uuid|TEXT|0||1
+// 1|userModificationDate|REAL|0||0
+// 2|creationDate|REAL|0||0
+// 3|title|TEXT|0||0
+// 4|status|INTEGER|0||0
+// 5|stopDate|REAL|0||0
+// 6|index|INTEGER|0||0
+// 7|task|TEXT|0||0
 type CheckListItem struct {
 	UUID             string
 	CreationDate     time.Time
@@ -406,11 +429,11 @@ type CheckListItem struct {
 
 // CheckListActionItemPayload describes the payload for modifying CheckListItems
 type CheckListActionItemPayload struct {
-	CreationDate     *Timestamp  `json:"cd,omitempty"`
-	ModificationDate *Timestamp  `json:"md,omitempty"`
-	Index            *int        `json:"ix"`
-	Status           *TaskStatus `json:"ss,omitempty"`
-	Title            *string     `json:"tt,omitempty"`
+	CreationDate     *Timestamp      `json:"cd,omitempty"`
+	ModificationDate *Timestamp      `json:"md,omitempty"`
+	Index            *int            `json:"ix"`
+	Status           *TaskStatus     `json:"ss,omitempty"`
+	Title            *string         `json:"tt,omitempty"`
 	CompletionDate   *Timestamp      `json:"sp,omitempty"`
 	TaskIDs          *[]string       `json:"ts,omitempty"`
 	Leavable         *bool           `json:"lt,omitempty"`

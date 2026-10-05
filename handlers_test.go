@@ -1,3 +1,4 @@
+// Handler tests exercise task queries and mutations against fake Things Cloud state.
 package main
 
 import (
@@ -938,7 +939,8 @@ func TestHandleCreateTask(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHandleEditTask(t *testing.T) {
-	task := makeTaskItem("task-edit-1",
+	taskID := thingscloud.NewUUID()
+	task := makeTaskItem(taskID,
 		withTitle("Original title"),
 		withCreationDate(mustTime("2025-03-10")),
 	)
@@ -949,7 +951,7 @@ func TestHandleEditTask(t *testing.T) {
 
 	t.Run("edit title", func(t *testing.T) {
 		req := makeReq(map[string]any{
-			"uuid":  "task-edit-1",
+			"uuid":  taskID,
 			"title": "Updated title",
 		})
 		result, err := tmcp.handleEditTask(context.Background(), req)
@@ -1009,7 +1011,7 @@ func TestHandleEditTask(t *testing.T) {
 
 	t.Run("complete task", func(t *testing.T) {
 		req := makeReq(map[string]any{
-			"uuid":   "task-edit-1",
+			"uuid":   taskID,
 			"status": "completed",
 		})
 		result, _ := tmcp.handleEditTask(context.Background(), req)

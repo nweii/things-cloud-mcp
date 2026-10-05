@@ -1,3 +1,4 @@
+// This file validates and stores history batches while deriving semantic changes.
 package sync
 
 import (
@@ -6,6 +7,7 @@ import (
 	"time"
 
 	things "github.com/arthursoares/things-cloud-sdk"
+	"github.com/arthursoares/things-cloud-sdk/state/memory"
 )
 
 // Note: database/sql types are used via the dbExecutor interface defined in sync.go
@@ -15,6 +17,11 @@ import (
 func (s *Syncer) processItems(items []things.Item, baseIndex int) ([]Change, error) {
 	if len(items) == 0 {
 		return nil, nil
+	}
+
+	// Validate every event before changing stored state or recording changes.
+	if err := memory.ValidateItems(items...); err != nil {
+		return nil, fmt.Errorf("validating history batch: %w", err)
 	}
 
 	// Wrap entire batch in a transaction for massive performance improvement
@@ -64,25 +71,31 @@ func (s *Syncer) processItem(item things.Item, serverIndex int, ts time.Time) ([
 		// Versioned settings are account metadata, not task-graph entities.
 		return nil, nil
 	}
+	if things.IsCommandKind(item.Kind) {
+		// Mail queue records carry email data; their tasks sync separately.
+		return nil, nil
+	}
+	if err := memory.ValidateItems(item); err != nil {
+		return nil, err
+	}
+	var err error
+	item, err = normalizeLegacyItem(item)
+	if err != nil {
+		return nil, err
+	}
 	switch item.Kind {
-	case things.ItemKindTask, things.ItemKindTask7, things.ItemKindTask4, things.ItemKindTask3, things.ItemKindTaskPlain:
+	case things.ItemKindTask, things.ItemKindTask7, things.ItemKindTask4, things.ItemKindTask3, things.ItemKindTask2, things.ItemKindTaskPlain:
 		return s.processTaskItem(item, serverIndex, ts)
 	case things.ItemKindArea, things.ItemKindArea3, things.ItemKindAreaPlain:
 		return s.processAreaItem(item, serverIndex, ts)
-	case things.ItemKindTag, things.ItemKindTag4, things.ItemKindTagPlain:
+	case things.ItemKindTag, things.ItemKindTag4, things.ItemKindTag2, things.ItemKindTagPlain:
 		return s.processTagItem(item, serverIndex, ts)
 	case things.ItemKindChecklistItem, things.ItemKindChecklistItem2, things.ItemKindChecklistItem3:
 		return s.processChecklistItem(item, serverIndex, ts)
 	case things.ItemKindTombstone, things.ItemKindTombstonePlain:
 		return s.processTombstone(item, serverIndex, ts)
 	default:
-		// Unknown item kind - create an UnknownChange
-		return []Change{UnknownChange{
-			baseChange: baseChange{serverIndex: serverIndex, timestamp: ts},
-			entityType: string(item.Kind),
-			entityUUID: item.UUID,
-			Details:    fmt.Sprintf("unknown item kind: %s", item.Kind),
-		}}, nil
+		return nil, fmt.Errorf("item %s has unsupported kind %q", item.UUID, item.Kind)
 	}
 }
 

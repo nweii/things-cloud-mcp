@@ -1,3 +1,4 @@
+// Landing and documentation pages describe the authenticated Things Cloud MCP tools.
 package main
 
 import (
@@ -921,8 +922,11 @@ var DocsPageHTML = `<!DOCTYPE html>
 
   <div class="tool-entry">
     <div class="tool-entry-name">things_diagnose</div>
-    <div class="tool-entry-desc">Run a read-only diagnostic against the account's authoritative history and fail-closed sync pipeline</div>
-    <div class="no-params">No parameters</div>
+    <div class="tool-entry-desc">Diagnose the account's authoritative history and sync pipeline without changing Things Cloud data</div>
+    <table class="params-table">
+      <tr><th>Parameter</th><th>Type</th><th>Description</th></tr>
+      <tr><td><span class="param-name">reset_sync_cache</span></td><td class="param-type">boolean</td><td>Rebuild this server's sync cache after resetting or overwriting Things Cloud. Default false; failed rebuilds preserve the cache.</td></tr>
+    </table>
   </div>
 </div>
 

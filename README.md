@@ -28,6 +28,10 @@ go build -o things-mcp .
 
 The server listens on port 8080 by default (set `PORT` to override). Optionally set `JWT_SECRET` for stable tokens across restarts. Things passwords stored for OAuth are encrypted with AES-GCM; set a durable high-entropy `CREDENTIALS_SECRET`, or persist the generated `DATA_DIR/credentials.key` alongside `oauth.db`. Refresh tokens are stored as hashes.
 
+Set `MCP_TIMEZONE` to an IANA zone such as `America/New_York` so Today, Tonight, upcoming windows, and recurrence defaults use your calendar date. The server falls back to `TZ`, then UTC; invalid zone names are logged and skipped. This setting applies to every account on the server. Things schedule and deadline dates retain their UTC-midnight calendar representation. Timezone data is embedded in the binary for minimal container images. Compose forwards `MCP_TIMEZONE` and defaults `TZ` to UTC.
+
+After resetting or overwriting your Things Cloud account, call `things_diagnose` with `{"reset_sync_cache":true}` to rebuild this server's cached task graph and cursor from the verified account history. A failed rebuild preserves the existing cache. This operation changes no Things Cloud data; ordinary diagnostic calls leave cache recovery disabled.
+
 - OAuth clients (Claude.ai, ChatGPT) authenticate via the built-in OAuth 2.1 flow
 - CLI clients (Claude Code, Cursor, Windsurf) use Basic auth headers
 

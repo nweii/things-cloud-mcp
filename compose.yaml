@@ -29,6 +29,7 @@ services:
       - PORT=8080
       - DATA_DIR=/data
       - TZ=${TZ:-UTC}
+      - MCP_TIMEZONE=${MCP_TIMEZONE:-}
       - JWT_SECRET=${JWT_SECRET}
       # Derives the AES-GCM key for Things passwords at rest. Supplying it from
       # the deployment's own secret store keeps the key out of the data volume,
