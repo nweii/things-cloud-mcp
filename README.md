@@ -17,6 +17,14 @@ Add this URL to your MCP client and start managing Things 3 tasks with AI. Multi
 - MCP output schemas and structured content for every tool
 - Fail-closed cursor/schema validation, uncertain-write reconciliation without automatic retry, and explicit confirmation for permanent deletion
 
+## Editing deadlines
+
+Use `things_edit_item` with `deadline` set to a date (`YYYY-MM-DD`) to set a task or project deadline, or `"none"` to clear it. Omitting `deadline` or passing an empty string (`""`) leaves the existing deadline unchanged, even when the result reports `status: "updated"`.
+
+```json
+{"uuid": "<task-or-project-uuid>", "deadline": "none"}
+```
+
 ## Self-hosting
 
 If you prefer to host your own instance:

@@ -1023,7 +1023,7 @@ var DocsPageHTML = `<!DOCTYPE html>
       <tr><td><span class="param-name">title</span></td><td class="param-type">string</td><td>New title</td></tr>
       <tr><td><span class="param-name">note</span></td><td class="param-type">string</td><td>New notes; empty string clears them</td></tr>
       <tr><td><span class="param-name">schedule</span></td><td class="param-type">string</td><td>today, tonight, anytime, someday, inbox, or YYYY-MM-DD (Upcoming, auto-moves to Today when due)</td></tr>
-      <tr><td><span class="param-name">deadline</span></td><td class="param-type">string</td><td>YYYY-MM-DD, or "none" to clear</td></tr>
+      <tr><td><span class="param-name">deadline</span></td><td class="param-type">string</td><td>YYYY-MM-DD, or "none" to clear; omitted or empty string leaves unchanged</td></tr>
       <tr><td><span class="param-name">area_uuid</span></td><td class="param-type">string</td><td>Move to area</td></tr>
       <tr><td><span class="param-name">project_uuid</span></td><td class="param-type">string</td><td>Move to an active pending project; inactive projects are rejected</td></tr>
       <tr><td><span class="param-name">heading_uuid</span></td><td class="param-type">string</td><td>Move to an active heading in an active pending project</td></tr>

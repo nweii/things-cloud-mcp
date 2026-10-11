@@ -4399,7 +4399,7 @@ func defineTools(um *UserManager) []server.ServerTool {
 		// --- Modify tools ---
 		{
 			Tool: mcp.NewTool("things_edit_item",
-				mcp.WithDescription("Edit an existing task or project in Things 3. Only provided fields are updated; omitted fields remain unchanged. Can also change status to complete, cancel, trash, or restore items. Completing a recurring task completes only the current instance; the next instance appears automatically. Set recurrence=none to permanently stop a recurring task. Returns {status: \"updated\", uuid}."),
+				mcp.WithDescription("Edit an existing task or project in Things 3. Only provided fields are updated; omitted fields remain unchanged. Set deadline=none to clear the deadline; an empty deadline leaves it unchanged. Can also change status to complete, cancel, trash, or restore items. Completing a recurring task completes only the current instance; the next instance appears automatically. Set recurrence=none to permanently stop a recurring task. Returns {status: \"updated\", uuid}."),
 				mcp.WithDestructiveHintAnnotation(true),
 				mcp.WithIdempotentHintAnnotation(false),
 				mcp.WithOpenWorldHintAnnotation(false),
@@ -4407,7 +4407,7 @@ func defineTools(um *UserManager) []server.ServerTool {
 				mcp.WithString("title", mcp.Description("New title")),
 				mcp.WithString("note", mcp.Description("New note content (replaces existing note; empty string clears it)")),
 				mcp.WithString("schedule", mcp.Description("When to schedule: today, tonight (today's tonight), anytime, someday, inbox, or a date (YYYY-MM-DD). Dates go to Upcoming and auto-move to Today when due.")),
-				mcp.WithString("deadline", mcp.Description("Deadline date in YYYY-MM-DD format")),
+				mcp.WithString("deadline", mcp.Description("Deadline date in YYYY-MM-DD format, or \"none\" to clear. Omit or use an empty string to leave unchanged.")),
 				mcp.WithString("area_uuid", mcp.Description("UUID of the area to assign to. Use things_find_areas to find area UUIDs.")),
 				mcp.WithString("project_uuid", mcp.Description("UUID of the active pending project to move to. Completed, canceled, and trashed projects are rejected. Use things_find_projects to find project UUIDs.")),
 				mcp.WithString("heading_uuid", mcp.Description("UUID of an active heading inside an active pending project. Headings in completed, canceled, or trashed projects are rejected. Use things_find_headings to find heading UUIDs.")),
