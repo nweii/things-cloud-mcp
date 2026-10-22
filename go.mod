@@ -2,6 +2,8 @@ module things-cloud-mcp
 
 go 1.25.0
 
+toolchain go1.27.3
+
 replace github.com/arthursoares/things-cloud-sdk => ./things-cloud-sdk
 
 require (
