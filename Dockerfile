@@ -1,7 +1,7 @@
 # Builds the Things Cloud MCP server (Go) and runs it as a non-root user on a
 # digest-pinned Alpine base. Hardened for self-hosting; base images are pinned
 # so rebuilds are reproducible.
-FROM golang:1.24-alpine@sha256:8bee1901f1e530bfb4a7850aa7a479d17ae3a18beb6e09064ed54cfd245b7191 AS builder
+FROM golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS builder
 
 WORKDIR /app
 
