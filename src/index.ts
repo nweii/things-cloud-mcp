@@ -17,12 +17,12 @@ interface Env {
   ACCOUNT: DurableObjectNamespace<Account>;
   JWT_SECRET: string;
   CREDENTIALS_KEY: string;
+  CALENDAR_TIME_ZONE?: string;
 }
 
 const SERVER_INFO = {
   name: "Things Cloud MCP",
   version: "2.0.0",
-  icons: [{ src: "https://thingscloudmcp.com/favicon.svg", mimeType: "image/svg+xml" }],
 };
 const INSTRUCTIONS =
   "Things Cloud MCP server for managing Things 3 tasks, projects, areas, and tags. " +
@@ -52,7 +52,7 @@ export class Account extends DurableObject<Env> {
     const sql = ctx.storage.sql;
     sql.exec("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)");
     sql.exec("CREATE TABLE IF NOT EXISTS ent (kind TEXT NOT NULL, uuid TEXT NOT NULL, j TEXT NOT NULL, PRIMARY KEY (kind, uuid))");
-    this.session = new Session(new SqlStore(ctx.storage), API_ENDPOINT);
+    this.session = new Session(new SqlStore(ctx.storage), API_ENDPOINT, env.CALENDAR_TIME_ZONE);
   }
 
   callTool(email: string, password: string, name: string, args: Record<string, any>) {
@@ -517,7 +517,8 @@ async function mcp(req: Request, env: Env, base: string): Promise<Response> {
     case "initialize": {
       const requested = params.protocolVersion;
       const protocolVersion = PROTOCOL_VERSIONS.includes(requested) ? requested : "2025-06-18";
-      return json(200, rpcResult(id, { protocolVersion, capabilities: { tools: {} }, serverInfo: SERVER_INFO, instructions: INSTRUCTIONS }));
+      const serverInfo = { ...SERVER_INFO, icons: [{ src: base + "/favicon.svg", mimeType: "image/svg+xml" }] };
+      return json(200, rpcResult(id, { protocolVersion, capabilities: { tools: {} }, serverInfo, instructions: INSTRUCTIONS }));
     }
     case "ping":
       return json(200, rpcResult(id, {}));

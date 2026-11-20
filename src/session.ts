@@ -36,7 +36,7 @@ export class Session {
   private lastWriteAt = 0;
   private chain: Promise<unknown> = Promise.resolve();
 
-  constructor(private store: Store, private endpoint = API_ENDPOINT) {}
+  constructor(private store: Store, private endpoint = API_ENDPOINT, private calendarTimeZone?: string) {}
 
   // Every operation runs alone: cursor and graph advance atomically.
   private serialize<T>(fn: () => Promise<T>): Promise<T> {
@@ -58,7 +58,7 @@ export class Session {
         return { error: `sync: ${e?.message ?? e}` };
       }
       try {
-        const data = await runTool({ state: this.state!, write: (envs) => this.write(envs) }, name, args);
+        const data = await runTool({ state: this.state!, calendarTimeZone: this.calendarTimeZone, write: (envs) => this.write(envs) }, name, args);
         return { data };
       } catch (e: any) {
         if (e instanceof ToolError) return { error: e.message };

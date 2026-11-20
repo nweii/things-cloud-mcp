@@ -15,6 +15,7 @@ export interface Envelope {
 
 export interface Ctx {
   state: State;
+  calendarTimeZone?: string;
   write(envs: Envelope[]): Promise<void>;
 }
 
@@ -113,14 +114,12 @@ function nowTs(): number {
   return Date.now() / 1000;
 }
 
-function nowLocal(): ParsedDate["local"] {
-  const t = ymd(nowTs());
-  return t;
-}
-
-function todayMidnightUTC(): number {
-  const t = ymd(nowTs());
-  return utcMidnight(t.y, t.m, t.d);
+function calendarMidnightUTC(timeZone = "UTC"): number {
+  if (timeZone === "UTC") return Math.floor(nowTs() / 86400) * 86400;
+  // Things expects date-only values at UTC midnight, using the local calendar day.
+  const formatter = new Intl.DateTimeFormat("en", { timeZone, year: "numeric", month: "numeric", day: "numeric" });
+  const parts = Object.fromEntries(formatter.formatToParts(Date.now()).map(({ type, value }) => [type, value]));
+  return utcMidnight(Number(parts.year), Number(parts.month) - 1, Number(parts.day));
 }
 
 function dateStr(sec: number): string {
@@ -209,7 +208,7 @@ function splitUUIDs(csv: string): string[] {
 
 type Opts = Record<string, string>;
 
-function newTaskCreatePayload(title: string, opts: Opts, ix: number): any {
+function newTaskCreatePayload(title: string, opts: Opts, ix: number, today: number): any {
   const now = nowTs();
   let st = 0, tp = 0, sb = 0;
   let sr: number | null = null, tir: number | null = null, dd: number | null = null;
@@ -221,8 +220,8 @@ function newTaskCreatePayload(title: string, opts: Opts, ix: number): any {
   }
   if ("schedule" in opts) {
     const v = opts.schedule;
-    if (v === "today") { st = 1; sr = tir = todayMidnightUTC(); }
-    else if (v === "tonight") { st = 1; sr = tir = todayMidnightUTC(); sb = 1; }
+    if (v === "today") { st = 1; sr = tir = today; }
+    else if (v === "tonight") { st = 1; sr = tir = today; sb = 1; }
     else if (v === "anytime") st = 1;
     else if (v === "someday") st = 2;
     else if (v === "inbox") st = 0;
@@ -251,14 +250,14 @@ function newTaskCreatePayload(title: string, opts: Opts, ix: number): any {
   }
   let rr: any = null, icsd: number | null = null;
   if (opts.recurrence) {
-    let ref = nowLocal();
+    let ref = ymd(today);
     if (opts.schedule) {
       const dt = parseDate(opts.schedule);
       if (dt) ref = dt.local;
     }
     try {
       const parsed = parseRecurrence(opts.recurrence, ref);
-      if (parsed) { rr = parsed; icsd = todayMidnightUTC(); }
+      if (parsed) { rr = parsed; icsd = today; }
     } catch {}
   }
   return {
@@ -268,19 +267,17 @@ function newTaskCreatePayload(title: string, opts: Opts, ix: number): any {
   };
 }
 
-function splitRecurringPayload(payload: any): { templateUUID: string; template: any; instance: any } {
-  let refSec = nowTs();
-  if (payload.tir !== null) refSec = payload.tir;
-  else if (payload.sr !== null) refSec = payload.sr;
+function splitRecurringPayload(payload: any, today: number): { templateUUID: string; template: any; instance: any } {
+  const refSec = payload.tir ?? payload.sr ?? today;
   const next = nextOccurrenceAfter(payload.rr as Repeater, ymd(refSec));
   if (next === null) throw new ToolError("could not compute next recurrence date");
   const templateUUID = newUUID();
-  const template = { ...payload, rr: payload.rr, icsd: todayMidnightUTC(), rt: [], sr: next, tir: next, st: 1, sb: 0 };
+  const template = { ...payload, rr: payload.rr, icsd: today, rt: [], sr: next, tir: next, st: 1, sb: 0 };
   const instance = { ...payload, rr: null, icsd: null, rt: [templateUUID] };
   return { templateUUID, template, instance };
 }
 
-function recurringTemplateForEdit(task: Task, a: Args, rr: any, next: number): any {
+function recurringTemplateForEdit(task: Task, a: Args, rr: any, next: number, today: number): any {
   const title = getString(a, "title") || task.title;
   const note = getString(a, "note") || task.note;
   // Go's append([]string(nil), ...) is nil for an empty list, so it goes out as null.
@@ -301,7 +298,7 @@ function recurringTemplateForEdit(task: Task, a: Args, rr: any, next: number): a
   return {
     tp: task.type, sr: next, dds: null, rt: [], rmd: null, ss: 0, tr: false, dl: copy(task.delegateIDs), icp: false, st: 1,
     ar: areas, tt: title, do: task.dueOrder, lai: null, tir: next, tg: tags, agr: headings, ix: task.index, cd: nowTs(),
-    lt: false, icc: 0, md: null, ti: 0, dd: deadline, ato: task.alarmTimeOffset, nt: textNote(note), icsd: todayMidnightUTC(),
+    lt: false, icc: 0, md: null, ti: 0, dd: deadline, ato: task.alarmTimeOffset, nt: textNote(note), icsd: today,
     pr: projects, rp: null, acrd: null, sp: null, sb: 0, rr, xx: defaultExtension(),
   };
 }
@@ -321,14 +318,9 @@ function statusString(s: number): string {
   return s === 3 ? "completed" : s === 2 ? "canceled" : "pending";
 }
 
-function isTodayDate(sec: number): boolean {
-  const a = ymd(sec), b = ymd(nowTs());
-  return a.y === b.y && a.m === b.m && a.d === b.d;
-}
-
-function scheduleString(st: number, scheduled: number | null, sb: number): string {
+function scheduleString(st: number, scheduled: number | null, sb: number, today: number): string {
   if (st === 1) {
-    if (scheduled !== null && isTodayDate(scheduled)) return sb === 1 ? "tonight" : "today";
+    if (scheduled !== null && scheduled >= today && scheduled < today + 86400) return sb === 1 ? "tonight" : "today";
     return "anytime";
   }
   if (st === 2) return scheduled !== null ? "upcoming" : "someday";
@@ -337,24 +329,19 @@ function scheduleString(st: number, scheduled: number | null, sb: number): strin
 
 const effectiveScheduled = (t: Task) => (t.todayIndexRefDate !== null ? t.todayIndexRefDate : t.scheduledDate);
 
-function todayEnd(): number {
-  const n = ymd(nowTs());
-  return utcMidnight(n.y, n.m, n.d) + 86399;
-}
-
-function isScheduledForTodayOrPast(t: Task): boolean {
+function isScheduledForTodayOrPast(t: Task, today: number): boolean {
   if (t.schedule !== 1 && t.schedule !== 2) return false;
   const d = effectiveScheduled(t);
-  return d !== null && d <= todayEnd();
+  return d !== null && d <= today + 86399;
 }
 
-function taskScheduleString(t: Task): string {
-  if (t.status === 0 && isScheduledForTodayOrPast(t)) return t.startBucket === 1 ? "tonight" : "today";
-  return scheduleString(t.schedule, effectiveScheduled(t), t.startBucket);
+function taskScheduleString(t: Task, today: number): string {
+  if (t.status === 0 && isScheduledForTodayOrPast(t, today)) return t.startBucket === 1 ? "tonight" : "today";
+  return scheduleString(t.schedule, effectiveScheduled(t), t.startBucket, today);
 }
 
 class Graph {
-  constructor(public s: State) {}
+  constructor(public s: State, readonly today = calendarMidnightUTC()) {}
 
   templateFor(t: Task): Task | null {
     if (!t.recurrenceIDs || t.recurrenceIDs.length === 0) return null;
@@ -457,7 +444,7 @@ class Graph {
     const out: any = { uuid: t.uuid, type: t.type === 1 ? "project" : "task", title: t.title };
     if (t.note) out.note = t.note;
     out.status = statusString(t.status);
-    out.schedule = taskScheduleString(t);
+    out.schedule = taskScheduleString(t, this.today);
     if (after1970(eff)) out.scheduledDate = dateStr(eff);
     if (after1970(t.deadlineDate)) out.deadlineDate = dateStr(t.deadlineDate);
     if (t.alarmTimeOffset !== null) out.reminderTime = offsetToTime(t.alarmTimeOffset);
@@ -663,10 +650,10 @@ function statusMatches(t: Task, filter: string): boolean | null {
 function passesCommon(g: Graph, t: Task, f: ListFilters): boolean {
   if (f.schedule) {
     if (f.schedule === "today") {
-      if (!isScheduledForTodayOrPast(t)) return false;
+      if (!isScheduledForTodayOrPast(t, g.today)) return false;
     } else if (f.schedule === "tonight") {
-      if (!isScheduledForTodayOrPast(t) || t.startBucket !== 1) return false;
-    } else if (taskScheduleString(t) !== f.schedule) return false;
+      if (!isScheduledForTodayOrPast(t, g.today) || t.startBucket !== 1) return false;
+    } else if (taskScheduleString(t, g.today) !== f.schedule) return false;
   }
   const eff = effectiveScheduled(t);
   if (f.sb !== null && (eff === null || !(eff < f.sb))) return false;
@@ -836,11 +823,11 @@ function overview(g: Graph, a: Args) {
   const areas: any[] = areaOrder.map((ar) => ({ uuid: ar.uuid, title: ar.title, projects: sortByIndex(areaProjects.get(ar.uuid)!).map((p) => g.toOutput(p)) }));
   if (noArea.length) areas.push({ uuid: "", title: "(No Area)", projects: sortByIndex(noArea).map((p) => g.toOutput(p)) });
 
-  const end = todayEnd();
+  const end = g.today + 86399;
   const cutoff = end + lookahead * 86400;
   const { list, projected } = g.candidates();
   const eligible = list.filter((t) => t.type !== 2 && !isTemplate(t) && !isUntitled(t) && g.isEffectivelyActive(t));
-  const today = eligible.filter(isScheduledForTodayOrPast);
+  const today = eligible.filter((t) => isScheduledForTodayOrPast(t, g.today));
   const todaySet = new Set(today.map((t) => t.uuid));
   sortByIndex(today);
   const upcoming = eligible.filter((t) => {
@@ -891,13 +878,13 @@ function collectOpts(a: Args, keys: string[], base: Opts = {}): Opts {
   return opts;
 }
 
-function validateRecurrence(opts: Opts) {
-  if (opts.recurrence) parseRecurrence(opts.recurrence, nowLocal());
+function validateRecurrence(opts: Opts, today: number) {
+  if (opts.recurrence) parseRecurrence(opts.recurrence, ymd(today));
 }
 
-function createEnvelopes(uuid: string, payload: any): Envelope[] {
+function createEnvelopes(uuid: string, payload: any, today: number): Envelope[] {
   if (payload.rr) {
-    const { templateUUID, template, instance } = splitRecurringPayload(payload);
+    const { templateUUID, template, instance } = splitRecurringPayload(payload, today);
     return [task6(templateUUID, 0, template), task6(uuid, 0, instance)];
   }
   return [task6(uuid, 0, payload)];
@@ -907,7 +894,7 @@ async function createTask(ctx: Ctx, g: Graph, a: Args) {
   const title = requireNonEmpty(a, "title");
   const opts = collectOpts(a, ["note", "schedule", "deadline", "project_uuid", "heading_uuid", "area_uuid", "tags", "checklist", "reminder_date", "reminder_time", "recurrence"]);
   g.validateOpts(opts);
-  validateRecurrence(opts);
+  validateRecurrence(opts, g.today);
   if (opts.checklist) for (const item of opts.checklist.split(",")) if (item.trim() === "") throw new ToolError("checklist items must not be empty");
   const ix = nextTopIndexBelow(
     g.minIndexWhere((t) => {
@@ -918,7 +905,7 @@ async function createTask(ctx: Ctx, g: Graph, a: Args) {
     }),
   );
   const uuid = newUUID();
-  const envs = createEnvelopes(uuid, newTaskCreatePayload(title, opts, ix));
+  const envs = createEnvelopes(uuid, newTaskCreatePayload(title, opts, ix, g.today), g.today);
   if (opts.checklist) {
     const now = nowTs();
     opts.checklist.split(",").forEach((item, i) => {
@@ -933,10 +920,10 @@ async function createProject(ctx: Ctx, g: Graph, a: Args) {
   const title = requireNonEmpty(a, "title");
   const opts = collectOpts(a, ["note", "schedule", "deadline", "area_uuid", "tags", "reminder_date", "reminder_time", "recurrence"], { type: "project" });
   g.validateOpts(opts);
-  validateRecurrence(opts);
+  validateRecurrence(opts, g.today);
   const ix = nextTopIndexBelow(g.minIndexWhere((t) => t.type === 1 && !t.inTrash && t.status === 0 && (!opts.area_uuid || contains(t.areaIDs, opts.area_uuid))));
   const uuid = newUUID();
-  await writeOr(ctx, "create project", createEnvelopes(uuid, newTaskCreatePayload(title, opts, ix)));
+  await writeOr(ctx, "create project", createEnvelopes(uuid, newTaskCreatePayload(title, opts, ix, g.today), g.today));
   return { status: "created", uuid, title };
 }
 
@@ -948,7 +935,7 @@ async function createHeading(ctx: Ctx, g: Graph, a: Args) {
   g.validateOpts(opts);
   const ix = nextTopIndexBelow(g.minIndexWhere((t) => t.type === 2 && !t.inTrash && t.status === 0 && contains(t.parentTaskIDs, projectUUID)));
   const uuid = newUUID();
-  await writeOr(ctx, "create heading", [task6(uuid, 0, newTaskCreatePayload(title, opts, ix))]);
+  await writeOr(ctx, "create heading", [task6(uuid, 0, newTaskCreatePayload(title, opts, ix, g.today))]);
   return { status: "created", uuid, title };
 }
 
@@ -1040,7 +1027,7 @@ async function editItem(ctx: Ctx, g: Graph, a: Args) {
   }
   const sched = getString(a, "schedule");
   if (sched) {
-    const today = todayMidnightUTC();
+    const today = g.today;
     if (sched === "today") { setSchedule(1, today, today); u.sb = 0; }
     else if (sched === "tonight") { setSchedule(1, today, today); u.sb = 1; }
     else if (sched === "anytime") { setSchedule(1, null, null); u.sb = 0; }
@@ -1097,7 +1084,7 @@ async function editItem(ctx: Ctx, g: Graph, a: Args) {
       Object.assign(u, { rt: [], rr: null, icsd: null });
       trashOld();
     } else {
-      let ref = nowLocal();
+      let ref = ymd(g.today);
       const schedArg = getString(a, "schedule");
       if (schedArg) {
         const dt = parseDate(schedArg);
@@ -1109,7 +1096,7 @@ async function editItem(ctx: Ctx, g: Graph, a: Args) {
       const next = nextOccurrenceAfter(rr, ref);
       if (next === null) throw new ToolError("could not compute next recurrence date");
       const newTpl = newUUID();
-      envs.push(task6(newTpl, 0, recurringTemplateForEdit(target, a, rr, next)));
+      envs.push(task6(newTpl, 0, recurringTemplateForEdit(target, a, rr, next, g.today)));
       Object.assign(u, { rt: [newTpl], rr: null, icsd: null });
       trashOld();
     }
@@ -1207,7 +1194,7 @@ export const HANDLERS: Record<string, Handler> = {
 export async function runTool(ctx: Ctx, name: string, args: Args): Promise<any> {
   const h = HANDLERS[name];
   if (!h) throw new ToolError(`tool not found: ${name}`);
-  return h(ctx, new Graph(ctx.state), args ?? {});
+  return h(ctx, new Graph(ctx.state, calendarMidnightUTC(ctx.calendarTimeZone)), args ?? {});
 }
 
 // Used by diagnose (step 7).
