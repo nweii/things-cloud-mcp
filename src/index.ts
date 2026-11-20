@@ -9,7 +9,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { API_ENDPOINT, ThingsClient, State, EntityKind } from "./things";
 import { Session, Meta, Store } from "./session";
-import { LOGIN_PAGE, SUCCESS_PAGE } from "./pages";
+import { LOGIN_PAGE } from "./pages";
 import TOOLS from "./tools.json";
 
 interface Env {
@@ -357,6 +357,8 @@ async function authorize(req: Request, env: Env, url: URL): Promise<Response> {
   const client = await lookupClient(env, clientID);
   if (!client) return loginPage("", "Unknown client_id.", query);
   if (!redirectAllowed(client, redirectURI)) return loginPage("", "Invalid redirect_uri.", query);
+  const callback = URL.parse(redirectURI);
+  if (!callback) return loginPage("", "Invalid redirect_uri.", query);
   if (req.method === "GET") return loginPage(client.client_name, "", query);
 
   const form = await formOf(req);
@@ -372,8 +374,9 @@ async function authorize(req: Request, env: Env, url: URL): Promise<Response> {
   await env.DB.prepare("INSERT INTO auth_codes (code, client_id, redirect_uri, email, password, code_challenge, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .bind(code, clientID, redirectURI, email, await encryptPassword(env, password), challenge, nowSec() + CODE_TTL)
     .run();
-  const location = redirectURI + (redirectURI.includes("?") ? "&" : "?") + "code=" + encodeURIComponent(code) + "&state=" + encodeURIComponent(state);
-  return html(SUCCESS_PAGE.replace('"{{redirect_url}}"', () => JSON.stringify(location).replace(/</g, "\\u003c")));
+  callback.searchParams.set("code", code);
+  callback.searchParams.set("state", state);
+  return new Response(null, { status: 303, headers: { Location: callback.href, "Cache-Control": "no-store" } });
 }
 
 async function issueTokens(env: Env, base: string, email: string, refresh: string): Promise<Response> {
