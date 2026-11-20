@@ -1,4 +1,4 @@
-// Sign-in and success pages for the OAuth flow (unchanged from the Go server).
+// Sign-in page for the OAuth flow.
 
 const CSS = `*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 
@@ -535,69 +535,3 @@ ${CSS}
 </div>
 </body>
 </html>`;
-
-export const SUCCESS_PAGE = `<!DOCTYPE html><html><head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Authorized - Things Cloud MCP</title>
-<style>
-${CSS}
-.auth-container{
-  min-height:100vh;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  padding:24px;
-}
-.auth-card{
-  width:100%;
-  max-width:380px;
-  background:var(--surface);
-  border:1px solid var(--divider);
-  border-radius:var(--radius);
-  padding:40px 32px;
-  box-shadow:0 2px 12px rgba(0,0,0,0.06);
-  text-align:center;
-}
-.auth-icon{
-  display:flex;
-  justify-content:center;
-  margin-bottom:24px;
-}
-.auth-title{
-  font-size:20px;
-  font-weight:700;
-  letter-spacing:-0.3px;
-  margin-bottom:8px;
-}
-.auth-subtitle{
-  font-size:14px;
-  color:var(--text-secondary);
-  line-height:1.5;
-}
-@keyframes spin{to{transform:rotate(360deg)}}
-.spinner{
-  width:20px;height:20px;
-  border:2px solid var(--divider);
-  border-top-color:var(--blue);
-  border-radius:50%;
-  animation:spin 0.8s linear infinite;
-  display:inline-block;
-  vertical-align:middle;
-  margin-right:8px;
-}
-</style>
-</head>
-<body>
-<div class="auth-container">
-  <div class="auth-card">
-    <div class="auth-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="48" height="48" fill="none">
-  <circle cx="32" cy="32" r="28" fill="#34C759"/>
-  <polyline points="20,33 28,41 44,25" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-</svg></div>
-    <div class="auth-title">Authorization Successful</div>
-    <div class="auth-subtitle">You can close this window.</div>
-  </div>
-</div>
-<script>setTimeout(function(){window.location.href="{{redirect_url}}"},1500);</script>
-</body></html>`;
