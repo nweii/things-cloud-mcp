@@ -153,6 +153,33 @@ test("a wrong password never reads the cached graph", async () => {
   }
 });
 
+test("Today reads and schedule writes follow the configured calendar day across DST", async (t) => {
+  const evenings = [
+    "2026-03-07T20:30:00-05:00",
+    "2026-03-08T20:30:00-04:00",
+    "2026-10-31T20:30:00-04:00",
+    "2026-11-01T20:30:00-05:00",
+  ];
+  for (const evening of evenings) {
+    await t.test(evening, async (t) => {
+      t.mock.method(Date, "now", () => Date.parse(evening));
+      const { fake, store } = await setup();
+      try {
+        const session = new Session(store, fake.url, "America/New_York");
+        const created = await session.callTool("a@b.c", "pw", "things_create_task", { title: "Tonight", schedule: "tonight" });
+        assert.equal(created.error, undefined);
+        const [envelope] = Object.values<any>(fake.commits[0]);
+        assert.equal(envelope.p.sr, Date.parse(`${evening.slice(0, 10)}T00:00:00Z`) / 1000);
+        const found = await session.callTool("a@b.c", "pw", "things_find_tasks", { schedule: "today" });
+        assert.equal(found.error, undefined);
+        assert.deepEqual(found.data.map((task: any) => task.title), ["Tonight"]);
+      } finally {
+        fake.stop();
+      }
+    });
+  }
+});
+
 test("incremental sync picks up changes from other devices", async () => {
   const { fake, session } = await setup();
   try {
